@@ -55,8 +55,54 @@
           (select-keys [:path-shape :json-as-text :has-cast])
           (assoc :tokens tokens))))))
 
-(defn parse-join [{:keys [acc lexed] :as current}]
-  current)
+(defn parse-join [source {:keys [acc lexed] :as current}]
+  (let [joins (:joins source)]
+    (if (seq joins)
+      (let [{:keys [tokens]} lexed]
+        (cond
+          (= (:name source) (first tokens))
+          (let [[relation & r-tokens] tokens]
+            {:acc (assoc acc :relation relation)
+             :lexed (-> lexed
+                      (assoc :tokens r-tokens)
+                      (update :path-shape rest))})
+
+          (= [(:schema source) (:name source)] (take 2 tokens))
+          (let [[schema relation & r-tokens] tokens]
+            {:acc (assoc acc :schema schema :relation relation)
+             :lexed (-> lexed
+                      (assoc :tokens r-tokens)
+                      (update :path-shape #(drop 2 %)))})
+          :else
+          (reduce-kv
+            (fn [current' _ j]
+              (let [{:keys [acc lexed]} current
+                    {:keys [tokens]} lexed
+                    [t & r-tokens] tokens]
+                (cond
+                  (= (:alias j) t)
+                  (reduced {:acc (assoc acc :alias (:alias j))
+                            :lexed (-> lexed
+                                     (assoc :tokens r-tokens)
+                                     (update :path-shape rest))})
+
+                  (= (:relation j) t)
+                  (reduced {:acc (assoc acc :alias (:alias j) :relation t)
+                            :lexed (-> lexed
+                                     (assoc :tokens r-tokens)
+                                     (update :path-shape rest))})
+
+                  (= [(:schema j) (:relation j)] [t (first r-tokens)])
+                  (reduced {:acc (assoc acc :alias (:alias j) :schema (:schema j) :relation (:relation j))
+                            :lexed (-> lexed
+                                     (assoc :tokens (rest r-tokens))
+                                     (update :path-shape #(drop 2 %)))})
+                  :else current')))
+            (-> current
+              (assoc-in [:acc :schema] (:schema source))
+              (assoc-in [:acc :relation] (:name source)))
+            (:joins source))))
+      current)))
 
 (defn parse-default [db {:keys [acc lexed]}]
   (let [{:keys [tokens]} lexed
@@ -110,7 +156,7 @@
   ([db source key json-as-text]
    (let [acc {:alias nil :schema nil :relation nil :lhs nil}
          res   (->> {:acc acc :lexed (lex key)}
-                 (parse-join)
+                 (parse-join source)
                  (parse-default db)
                  (parse-json-elements json-as-text)
                  (parse-cast))

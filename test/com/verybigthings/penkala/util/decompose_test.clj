@@ -5,10 +5,10 @@
 
 (s/check-asserts true)
 
-(deftest should-return-nil-if-given-empty-data-and-schema
+(deftest it-should-return-nil-if-given-empty-data-and-schema
   (is (nil? (d/decompose {} []))))
 
-(deftest should-collapse-simple-tree-structures
+(deftest it-should-collapse-simple-tree-structures
   (is (= [{:id 1 :val "p1" :children [{:id 11 :val "c1"} {:id 12 :val "c2"}]}]
         (d/decompose
           {:pk :parent_id
@@ -19,7 +19,7 @@
           [{:parent_id 1 :parent_val "p1" :children_id 11 :children_val "c1"}
            {:parent_id 1 :parent_val "p1" :children_id 12 :children_val "c2"}]))))
 
-(deftest should-handle-objects
+(deftest it-should-handle-objects
   (is (= [{:id 1 :val "p1" :children [{:id 11 :val "c1"}]}]
         (d/decompose
           {:pk :parent_id
@@ -29,7 +29,7 @@
                                 :columns {:children_id :id :children_val :val}}}}
           {:parent_id 1 :parent_val "p1" :children_id 11 :children_val "c1"}))))
 
-(deftest should-decompose-partial-results
+(deftest it-should-decompose-partial-results
   (is (= [{:id 1 :children [{:id 11}]}]
         (d/decompose
           {:pk :parent_id
@@ -39,7 +39,7 @@
                                 :columns {:children_id :id :children_val :val}}}}
           {:parent_id 1 :children_id 11}))))
 
-(deftest should-handle-array-fields
+(deftest it-should-handle-array-fields
   (is (= [{:id 1 :arr ["one" "two"] :children [{:id 11 :arr ["three" "four"]}]}]
         (d/decompose
           {:pk :parent_id
@@ -64,7 +64,7 @@
           [{:parent_id 1 :parent_val "p1" :children_id 11 :children_val "c1"}
            {:parent_id 1 :parent_val "p1" :children_id 12 :children_val "c2"}]))))
 
-(deftest should-collapse-multiple-children-with-the-same-parent
+(deftest it-should-collapse-multiple-children-with-the-same-parent
   (is (= [{:id 1
            :val "p1"
            :children1 [{:id 11 :val "c1"} {:id 12 :val "c2"}]
@@ -81,7 +81,7 @@
            {:parent_id 1 :parent_val "p1" :children1_id 12 :children1_val "c2" :children2_id 22 :children2_val "d2"}
            {:parent_id 1 :parent_val "p1" :children1_id 12 :children1_val "c2" :children2_id 23 :children2_val "d3"}]))))
 
-(deftest should-collapse-children-into-other-children
+(deftest it-should-collapse-children-into-other-children
   (is (= [{:id 1
            :val "p1"
            :children1 [{:id 11
@@ -105,7 +105,7 @@
            {:parent_id 1 :parent_val "p1" :children1_id 12 :children1_val "c2" :children1_children2_id 22 :children1_children2_val "d2"}
            {:parent_id 1 :parent_val "p1" :children1_id 12 :children1_val "c2" :children1_children2_id 23 :children1_children2_val "d3"}]))))
 
-(deftest should-collapse-object-descendants
+(deftest it-should-collapse-object-descendants
   (is (= [{:id 1 :val "p1" :child {:id 11 :val "c1" :grandchild {:id 111 :val "g1"}}}]
         (d/decompose
           {:pk :parent_id
@@ -166,7 +166,7 @@
            {:parent_id 1 :parent_val "p1" :children_child_id 12 :children_val "c2"}
            {:parent_id 1 :parent_val "p1" :children_child_id 12 :children_val "c2"}]))))
 
-(deftest should-apply-new-parents-only-in-the-correct-scope
+(deftest it-should-apply-new-parents-only-in-the-correct-scope
   (is (= [{:id 1,
            :account {:id 1},
            :name "Eduardo Luiz",
@@ -265,7 +265,7 @@
             :address_city "Sao Paulo",
             :this_name "Eduardo Luiz"}]))))
 
-(deftest should-accept-and-use-pk-vectors
+(deftest it-should-accept-and-use-pk-vectors
   (is (= [{:id_one 1,
            :id_two 2,
            :val "p1",
