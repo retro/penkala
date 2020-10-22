@@ -3,17 +3,8 @@
             [com.verybigthings.penkala.util.parse-key :as p]))
 
 (def source
-  {:path "mytable"
-   :schema "public"
-   :name "mytable"
-   :delimited-name "\"mytable\""
-   :delimited-schema "\"public\""
-   :delimited-full-name "\"mytable\""
-   :column-names [:id :field :col1 :col2 :body]
-   :is-mat-view false
-   :pk [:id]
-   :insertable true
-   })
+  {:schema "public"
+   :name "mytable"})
 
 (def db
   {:schema "public"})
