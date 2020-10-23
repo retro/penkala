@@ -1,6 +1,7 @@
 (ns com.verybigthings.penkala.util.parse-key-test
   (:require [clojure.test :refer :all]
-            [com.verybigthings.penkala.util.parse-key :as p]))
+            [com.verybigthings.penkala.util.parse-key :as p]
+            [com.verybigthings.penkala.statement.operations :as o]))
 
 (def source
   {:schema "public"
@@ -224,3 +225,233 @@
     (is (= "\"jointable2\".\"json\"" (:path result)))
     (is (= "\"jointable2\".\"json\"#>>'{array,1,field,array,2}'" (:lhs result)))
     (is (= ["array" "1" "field" "array" "2"] (:json-elements result)))))
+
+(deftest with-appendix-should-default-to-equivalence
+  (let [result (p/with-appendix db source "myfield" o/operations)]
+    (is (= "myfield" (:field result)))
+    (is (= "\"myfield\"" (:path result)))
+    (is (= "\"myfield\"" (:lhs result)))
+    (is (= "=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-get-operation-details-for-an-unquoted-identifier
+  (let [result (p/with-appendix db source "myfield <=" o/operations)]
+    (is (= (:field result) "myfield"))
+    (is (= "\"myfield\"" (:path result)))
+    (is (= "\"myfield\"" (:lhs result)))
+    (is (= "<=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-get-operation-details-for-a-quoted-identifier
+  (let [result (p/with-appendix db source "\"my field\" <=" o/operations)]
+    (is (= (:field result) "my field"))
+    (is (= "\"my field\"" (:path result)))
+    (is (= "\"my field\"" (:lhs result)))
+    (is (= "<=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-get-an-operation-comprising-multiple-tokens
+  (let [result (p/with-appendix db source "myfield not similar to" o/operations)]
+    (is (= (:field result) "myfield"))
+    (is (= "\"myfield\"" (:path result)))
+    (is (= "\"myfield\"" (:lhs result)))
+    (is (= "NOT SIMILAR TO" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-allow-any-amount-of-whitespace
+  (let [result (p/with-appendix db source "   \r\n \t  myfield \r\n \t \n \t <= \r" o/operations)]
+    (is (= (:field result) "myfield"))
+    (is (= "\"myfield\"" (:path result)))
+    (is (= "\"myfield\"" (:lhs result)))
+    (is (= "<=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-get-the-appropriate-mutator
+  (let [result (p/with-appendix db source "\"my field\" @>" o/operations)]
+    (is (= (:field result) "my field"))
+    (is (= "\"my field\"" (:path result)))
+    (is (= "\"my field\"" (:lhs result)))
+    (is (= "@>" (get-in result [:appended :operator])))
+    (is (= {:offset 1 :value "$1" :params ["{hi}"]}
+          ((get-in result [:appended :mutator]) {:value ["hi"] :params [] :offset 1})))))
+
+(deftest with-appendix-should-get-operations-for-a-shallow-json-path
+  (let [result (p/with-appendix db source "json.key <=" o/operations)]
+    (is (= "json" (:field result)))
+    (is (= "\"json\"" (:path result)))
+    (is (= "\"json\"->>'key'" (:lhs result)))
+    (is (= "<=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-get-operations-for-a-deep-json-path
+  (let [result (p/with-appendix db source "json.outer.inner <=" o/operations)]
+    (is (= "json" (:field result)))
+    (is (= "\"json\"" (:path result)))
+    (is (= "\"json\"#>>'{outer,inner}'" (:lhs result)))
+    (is (= "<=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-get-operations-for-a-json-array
+  (let [result (p/with-appendix db source "json[1] <=" o/operations)]
+    (is (= "json" (:field result)))
+    (is (= "\"json\"" (:path result)))
+    (is (= "\"json\"->>1" (:lhs result)))
+    (is (= "<=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-match->-properly
+  (let [result (p/with-appendix db source "field >" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "\"field\"" (:lhs result)))
+    (is (= ">" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-match-the-longest-possible-operator
+  (let [result (p/with-appendix db source "field ~~*" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "\"field\"" (:lhs result)))
+    (is (= "ILIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-ignore-case-of-LIKE-and-similar-operators
+  (let [result (p/with-appendix db source "field LikE" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "\"field\"" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-not-clobber-a-field-with-an-operator-in-the-name
+  (let [result (p/with-appendix db source "is_field is" o/operations)]
+    (is (= "is_field" (:field result)))
+    (is (= "\"is_field\"" (:path result)))
+    (is (= "\"is_field\"" (:lhs result)))
+    (is (= "IS" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-not-clobber-a-quoted-field-with-an-operator-in-the-name
+  (let [result (p/with-appendix db source "\"this is a field\" is" o/operations)]
+    (is (= "this is a field" (:field result)))
+    (is (= "\"this is a field\"" (:path result)))
+    (is (= "\"this is a field\"" (:lhs result)))
+    (is (= "IS" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-get-the-operation-details-for-an-identifier-with-table
+  (let [result (p/with-appendix db join-source "\"jointable1\".\"my field\" <=" o/operations)]
+    (is (= "jointable1" (:relation result)))
+    (is (= "my field" (:field result)))
+    (is (= "\"jointable1\".\"my field\"" (:path result)))
+    (is (= "\"jointable1\".\"my field\"" (:lhs result)))
+    (is (= "<=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-get-the-operation-details-for-an-identifier-with-table-and-schema
+  (let [result (p/with-appendix db join-source "myschema.jointable2.myfield <=" o/operations)]
+    (is (= "myschema" (:schema result)))
+    (is (= "jointable2" (:relation result)))
+    (is (= "myfield" (:field result)))
+    (is (= "\"jointable2\".\"myfield\"" (:path result)))
+    (is (= "\"jointable2\".\"myfield\"" (:lhs result)))
+    (is (= "<=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-get-operations-for-a-deep-json-path-with-table-and-schema
+  (let [result (p/with-appendix db join-source "myschema.jointable2.json.outer.inner <=" o/operations)]
+    (is (= "myschema" (:schema result)))
+    (is (= "jointable2" (:relation result)))
+    (is (= "json" (:field result)))
+    (is (= "\"jointable2\".\"json\"" (:path result)))
+    (is (= "\"jointable2\".\"json\"#>>'{outer,inner}'" (:lhs result)))
+    (is (= "<=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-format-mixed-json-paths
+  (let [result (p/with-appendix db source "json.array[1].field.array[2]::boolean LIKE" o/operations)]
+    (is (= "json" (:field result)))
+    (is (= "\"json\"" (:path result)))
+    (is (= "(\"json\"#>>'{array,1,field,array,2}')::boolean" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-format-quoted-fields-with-mixed-json-paths
+  (let [result (p/with-appendix db source "\"json\".array[1].field.array[2]::boolean LIKE" o/operations)]
+    (is (= "json" (:field result)))
+    (is (= "\"json\"" (:path result)))
+    (is (= "(\"json\"#>>'{array,1,field,array,2}')::boolean" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-fields
+  (let [result (p/with-appendix db source "field::text LIKE" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "\"field\"::text" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-fields-with-shallow-json-paths
+  (let [result (p/with-appendix db source "field.element::boolean LIKE" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "(\"field\"->>'element')::boolean" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-fields-with-shallow-json-paths
+  (let [result (p/with-appendix db source "field.one.two::boolean LIKE" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "(\"field\"#>>'{one,two}')::boolean" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-fields-with-json-arrays
+  (let [result (p/with-appendix db source "field[123]::boolean LIKE" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "(\"field\"->>123)::boolean" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-quoted-fields-without-an-operator
+  (let [result (p/with-appendix db source "\"field\"::text" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "\"field\"::text" (:lhs result)))
+    (is (= "=" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-quoted-fields
+  (let [result (p/with-appendix db source "\"field\"::text LIKE" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "\"field\"::text" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-quoted-fields-with-json-operations
+  (let [result (p/with-appendix db source "\"field\".element::boolean LIKE" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "(\"field\"->>'element')::boolean" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-quoted-fields-with-deep-json-paths
+  (let [result (p/with-appendix db source "\"field\".one.two::boolean LIKE" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "(\"field\"#>>'{one,two}')::boolean" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-quoted-fields-with-json-arrays
+  (let [result (p/with-appendix db source "\"field\"[123]::boolean LIKE" o/operations)]
+    (is (= "field" (:field result)))
+    (is (= "\"field\"" (:path result)))
+    (is (= "(\"field\"->>123)::boolean" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-fields-with-a-table
+  (let [result (p/with-appendix db join-source "jointable1.field::text LIKE" o/operations)]
+    (is (= "jointable1" (:relation result)))
+    (is (= "field" (:field result)))
+    (is (= "\"jointable1\".\"field\"" (:path result)))
+    (is (= "\"jointable1\".\"field\"::text" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-fields-with-a-schema-and-table
+  (let [result (p/with-appendix db join-source "myschema.jointable2.field::text LIKE" o/operations)]
+    (is (= "myschema" (:schema result)))
+    (is (= "jointable2" (:relation result)))
+    (is (= "field" (:field result)))
+    (is (= "\"jointable2\".\"field\"" (:path result)))
+    (is (= "\"jointable2\".\"field\"::text" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+
+(deftest with-appendix-should-cast-mixed-json-paths-with-a-schema-and-table
+  (let [result (p/with-appendix db join-source "myschema.jointable2.json.array[1].field.array[2]::boolean LIKE" o/operations)]
+    (is (= "myschema" (:schema result)))
+    (is (= "jointable2" (:relation result)))
+    (is (= "json" (:field result)))
+    (is (= "\"jointable2\".\"json\"" (:path result)))
+    (is (= "(\"jointable2\".\"json\"#>>'{array,1,field,array,2}')::boolean" (:lhs result)))
+    (is (= "LIKE" (get-in result [:appended :operator])))))
+

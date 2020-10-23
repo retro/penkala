@@ -160,10 +160,18 @@
                  (parse-default db)
                  (parse-json-elements json-as-text)
                  (parse-cast))
-         {:keys [acc lexed]} res]
+         {:keys [acc lexed]} res
+         tokens (:tokens lexed)
+         remainder (when (seq tokens) (->> tokens (str/join " ") str/lower-case))]
 
-     (clojure.pprint/pprint res)
      (-> acc
-       (assoc :relation (or (:relation acc) (:alias acc) (:name source)))))))
+       (assoc :relation (or (:relation acc) (:alias acc) (:name source))
+              :remainder remainder)))))
 
-(defn with-appendix [key source appendix value offset])
+(defn with-appendix
+  ([db source key appendix] (with-appendix db source key appendix nil nil))
+  ([db source key appendix value offset]
+   (let [predicate (parse-key db source key)
+         remainder (:remainder predicate)
+         appended  (appendix (or remainder "="))]
+     (assoc predicate :offset offset :value value :params [] :appended appended))))

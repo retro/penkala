@@ -1,5 +1,6 @@
 (ns com.verybigthings.penkala.statement.operations
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [com.verybigthings.penkala.util.core :refer [str-quote]]))
 
 (defn cast-timestamp [value]
   (if (inst? value) "::timestamptz" ""))
@@ -43,8 +44,30 @@
      :value (str "$" offset (cast-timestamp f) " AND $" (inc offset) (cast-timestamp s))
      :offset (+ 2 offset)}))
 
-(defn literalize-array [condition])
+(def match-to-escape-re (re-pattern "[,\\{}\\s\\\\\"]"))
+(def escape-re (re-pattern "([\\\\\"])"))
 
+(defn literalize-array [condition]
+  (let [{:keys [value offset]} condition]
+    (if (sequential? value)
+      (let [sanitized-values
+            (map
+              (fn [v]
+                (cond
+                  (nil? v)
+                  "null"
+
+                  (or (= "" v) (= "null" v) (and (string? v) (re-find match-to-escape-re v)))
+                  (-> v (str/replace escape-re "$1") str-quote)
+
+                  :else v))
+              value)]
+        (-> condition
+          (update :params conj (str "{" (str/join "," sanitized-values) "}"))
+          (assoc :value (str "$" offset (cast-timestamp value)))))
+      (-> condition
+        (update :params conj value)
+        (assoc :value (str "$" offset (cast-timestamp value)))))))
 
 (def operations
   {"=" {:operator "=" :mutator equality}

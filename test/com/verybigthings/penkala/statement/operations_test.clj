@@ -97,3 +97,22 @@
       (is (= 1 (:offset condition)))
       (is (= [date1] (:params condition)))
       (is (= "$1::timestamptz" (:value condition))))))
+
+(deftest literalize-array
+  (testing "it transforms arrays into Postgres syntax"
+    (let [condition (o/literalize-array {:offset 1 :value ["one" "two" "three"] :params []})]
+      (is (= {:offset 1 :params ["{one,two,three}"] :value "$1"} condition))))
+  (testing "it leaves non-array values alone"
+    (let [condition (o/literalize-array {:offset 1 :value "hi" :params []})]
+      (is (= {:offset 1 :params ["hi"] :value "$1"} condition))))
+  (testing "it sanitizes string values"
+    (let [condition (o/literalize-array {:offset 1
+                                         :value ["{one}" "two three" "four,five" "\"six\"" "\\seven" "" "null"]
+                                         :params []})]
+      (is (= {:offset 1
+              :params ["{\"{one}\",\"two three\",\"four,five\",\"\"six\"\",\"\\seven\",\"\",\"null\"}"]
+              :value "$1"}
+            condition))))
+  (testing "it does nothing to non-string values"
+    (let [condition (o/literalize-array {:offset 1 :value [1, true, nil, 1.5] :params []})]
+      (is (= {:offset 1 :params ["{1,true,null,1.5}"] :value "$1"} condition)))))
