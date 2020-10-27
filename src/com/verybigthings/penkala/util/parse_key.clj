@@ -55,21 +55,21 @@
           (select-keys [:path-shape :json-as-text :has-cast])
           (assoc :tokens tokens))))))
 
-(defn parse-join [source {:keys [acc lexed] :as current}]
-  (let [joins (:joins source)]
+(defn parse-join [{:keys [acc lexed] :as current} source]
+  (let [joins (:relation/joins source)]
     (if (seq joins)
       (let [{:keys [tokens]} lexed]
         (cond
-          (= (:name source) (first tokens))
+          (= (:relation/name source) (first tokens))
           (let [[relation & r-tokens] tokens]
-            {:acc (assoc acc :relation relation)
+            {:acc (assoc acc :relation/name relation)
              :lexed (-> lexed
                       (assoc :tokens r-tokens)
                       (update :path-shape rest))})
 
-          (= [(:schema source) (:name source)] (take 2 tokens))
+          (= [(:db/schema source) (:relation/name source)] (take 2 tokens))
           (let [[schema relation & r-tokens] tokens]
-            {:acc (assoc acc :schema schema :relation relation)
+            {:acc (assoc acc :db/schema schema :relation/name relation)
              :lexed (-> lexed
                       (assoc :tokens r-tokens)
                       (update :path-shape #(drop 2 %)))})
@@ -80,84 +80,73 @@
                     {:keys [tokens]} lexed
                     [t & r-tokens] tokens]
                 (cond
-                  (= (:alias j) t)
-                  (reduced {:acc (assoc acc :alias (:alias j))
+                  (= (:relation/alias j) t)
+                  (reduced {:acc (assoc acc :relation/alias (:relation/alias j))
                             :lexed (-> lexed
                                      (assoc :tokens r-tokens)
                                      (update :path-shape rest))})
 
-                  (= (:relation j) t)
-                  (reduced {:acc (assoc acc :alias (:alias j) :relation t)
+                  (= (:relation/name j) t)
+                  (reduced {:acc (assoc acc :relation/alias (:relation/alias j)
+                                            :relation/name t)
                             :lexed (-> lexed
                                      (assoc :tokens r-tokens)
                                      (update :path-shape rest))})
 
-                  (= [(:schema j) (:relation j)] [t (first r-tokens)])
-                  (reduced {:acc (assoc acc :alias (:alias j) :schema (:schema j) :relation (:relation j))
+                  (= [(:db/schema j) (:relation/name j)] [t (first r-tokens)])
+                  (reduced {:acc (assoc acc :relation/alias (:relation/alias j)
+                                            :db/schema (:db/schema j)
+                                            :relation/name (:relation/name j))
                             :lexed (-> lexed
                                      (assoc :tokens (rest r-tokens))
                                      (update :path-shape #(drop 2 %)))})
                   :else current')))
             (-> current
-              (assoc-in [:acc :schema] (:schema source))
-              (assoc-in [:acc :relation] (:name source)))
-            (:joins source))))
+              (assoc-in [:acc :db/schema] (:db/schema source))
+              (assoc-in [:acc :relation/name] (:relation/name source)))
+            joins)))
       current)))
 
-(defn parse-default [db {:keys [acc lexed]}]
+(defn parse-default [{:keys [acc lexed]} source]
   (let [{:keys [tokens]} lexed
-        {:keys [schema relation alias]} acc
-        [field & r-tokens] tokens
-        is-schema-current (= schema (:schema db))
-        path-elements (->> [(when (and (not alias) (not is-schema-current)) schema)
-                            (or alias relation)
-                            field]
-                        (remove nil?))
-        path              (->> path-elements (map str-quote) (str/join "."))]
-
-    {:acc (assoc acc :path path
-                     :lhs path
-                     :path-elements path-elements
-                     :field field)
+        [field & r-tokens] tokens]
+    {:acc (assoc acc :query/field field)
      :lexed (assoc lexed :tokens r-tokens)}))
 
-(defn parse-json-elements [json-as-text {:keys [acc lexed] :as current}]
-  (let [{:keys [path-shape tokens]} lexed
-        {:keys [path]} acc]
+(defn parse-json-elements [{:keys [acc lexed] :as current} json-as-text]
+  (let [{:keys [path-shape tokens]} lexed]
     (if (seq path-shape)
       (if (= 1 (count path-shape))
         (let [operator (if (or json-as-text (:json-as-text lexed)) "->>" "->")
               [t & r-tokens] tokens
-              json-elements [t]
-              lhs (if (= [true] path-shape) (str path operator "'" t "'") (str path operator t))]
-          {:acc (assoc acc :lhs lhs :json-elements json-elements)
+              json-elements [t]]
+          {:acc (assoc acc :query/json {:elements json-elements
+                                        :operator operator
+                                        :path-wrap (when (= [true] path-shape) :quote)})
            :lexed (assoc lexed :tokens r-tokens)})
         (let [operator (if json-as-text "#>>" "#>")
               path-shape-length (count path-shape)
               r-tokens (drop path-shape-length tokens)
-              json-elements (take path-shape-length tokens)
-              lhs (str path operator "'{" (str/join "," json-elements) "}'")]
-          {:acc (assoc acc :lhs lhs :json-elements json-elements)
+              json-elements (take path-shape-length tokens)]
+          {:acc (assoc acc :query/json {:elements json-elements :operator operator :path-wrap :curly})
            :lexed (assoc lexed :tokens r-tokens)}))
       current)))
 
 (defn parse-cast [{:keys [acc lexed] :as current}]
   (if (:has-cast lexed)
-    (let [{:keys [path-shape tokens]} lexed
-          {:keys [lhs]} acc
-          [cast & r-tokens] tokens
-          lhs' (if (seq path-shape) (str "(" lhs ")::" cast) (str lhs "::" cast))]
-      {:acc (assoc acc :lhs lhs')
+    (let [{:keys [tokens]} lexed
+          [cast & r-tokens] tokens]
+      {:acc (assoc acc :query/cast cast)
        :lexed (assoc lexed :tokens r-tokens)})
     current))
 
 (defn parse-key
-  ([db source key] (parse-key db source key true))
-  ([db source key json-as-text]
-   (let [acc {:alias nil :schema nil :relation nil :lhs nil}
-         res   (->> {:acc acc :lexed (lex key)}
+  ([source key] (parse-key source key true))
+  ([source key json-as-text]
+   (let [acc {:relation/alias nil :db/schema (:db/schema source) :relation/name nil}
+         res   (-> {:acc acc :lexed (lex key)}
                  (parse-join source)
-                 (parse-default db)
+                 (parse-default source)
                  (parse-json-elements json-as-text)
                  (parse-cast))
          {:keys [acc lexed]} res
@@ -165,13 +154,62 @@
          remainder (when (seq tokens) (->> tokens (str/join " ") str/lower-case))]
 
      (-> acc
-       (assoc :relation (or (:relation acc) (:alias acc) (:name source))
+       (assoc :relation/name (or (:relation/name acc) (:relation/alias acc) (:relation/name source))
               :remainder remainder)))))
+(defn get-path
+  ([parsed] (get-path parsed {} {}))
+  ([parsed source] (get-path parsed source {}))
+  ([parsed source db-config]
+   (let [{:relation/keys [alias name]} parsed
+         {:db/keys [schema]} parsed
+         {:query/keys [field]} parsed
+         is-schema-current (= (:db/schema db-config) schema)
+
+         has-joins (seq (:relation/joins source))
+         is-relation-source (= name (:relation/name source))
+
+         should-include-schema (and (not alias) (not is-schema-current))
+         should-include-relation (and (not alias) (or (not is-schema-current) (not is-relation-source) has-joins))]
+     (->> [(when should-include-schema schema) alias (when should-include-relation name) field]
+       (remove nil?)
+       (map str-quote)
+       (str/join ".")))))
+
+(defn lhs-with-json-path [path parsed]
+  (if-let [json (:query/json parsed)]
+    (let [json-path (str/join "," (:elements json))
+          wrapped-json-path (case (:path-wrap json)
+                              :curly (str "'{" json-path "}'")
+                              :quote (str "'" json-path "'")
+                              json-path)]
+      (str path (:operator json) wrapped-json-path))
+    path))
+
+(defn lhs-with-cast [path parsed]
+  (if-let [cast (:query/cast parsed)]
+    ;; Should I check path-shape here?
+    (if (:query/json parsed)
+      (str "(" path ")::" cast)
+      (str path "::" cast))
+    path))
+
+(defn get-lhs
+  ([parsed] (get-lhs parsed {} {}))
+  ([parsed source] (get-lhs parsed source {}))
+  ([parsed source db-config]
+   (let [path (get-path parsed source db-config)]
+     (cond-> path
+
+       (:query/json parsed)
+       (lhs-with-json-path parsed)
+
+       (:query/cast parsed)
+       (lhs-with-cast parsed)))))
 
 (defn with-appendix
-  ([db source key appendix] (with-appendix db source key appendix nil nil))
-  ([db source key appendix value offset]
-   (let [predicate (parse-key db source key)
+  ([source key appendix] (with-appendix source key appendix nil))
+  ([source key appendix value]
+   (let [predicate (parse-key source key)
          remainder (:remainder predicate)
          appended  (appendix (or remainder "="))]
-     (assoc predicate :offset offset :value value :params [] :appended appended))))
+     (assoc predicate :value value :params [] :appended appended))))

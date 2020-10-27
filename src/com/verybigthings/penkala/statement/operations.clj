@@ -7,25 +7,24 @@
 
 (defn build-in [condition]
   (let [operator (get-in condition [:appended :operator])
-        {:keys [value offset]} condition]
+        {:keys [value]} condition]
     (if-not (seq value)
       (assoc condition :value (if (= "=" operator) "ANY ('{}')" "ALL ('{}')"))
       (let [in-list (reduce-kv
                       (fn [acc idx v]
-                        (conj acc (str "$" (+ idx offset) (cast-timestamp v))))
+                        (conj acc (str "?" (cast-timestamp v))))
                       []
                       (->> value (map-indexed (fn [i v] [i v])) (into {})))]
         (-> condition
           (assoc-in [:appended :operator] (if (= "=" operator) "IN" "NOT IN"))
           (assoc :value (str "(" (str/join "," in-list) ")")
-                 :params value
-                 :offset (+ offset (count value))))))))
+                 :params value))))))
 
 (defn build-is [condition]
   (update-in condition [:appended :operator] #(if (contains? #{"=" "IS"} %) "IS" "IS NOT")))
 
 (defn equality [condition]
-  (let [{:keys [value offset]} condition]
+  (let [{:keys [value]} condition]
     (cond
       (or (nil? value) (boolean? value))
       (build-is condition)
@@ -36,19 +35,18 @@
       :else
       (-> condition
         (update :params conj value)
-        (assoc :value (str "$" offset (cast-timestamp value)))))))
+        (assoc :value (str "?" (cast-timestamp value)))))))
 
-(defn build-between [{:keys [value offset]}]
+(defn build-between [{:keys [value]}]
   (let [[f s] value]
     {:params value
-     :value (str "$" offset (cast-timestamp f) " AND $" (inc offset) (cast-timestamp s))
-     :offset (+ 2 offset)}))
+     :value (str "?" (cast-timestamp f) " AND ?" (cast-timestamp s))}))
 
 (def match-to-escape-re (re-pattern "[,\\{}\\s\\\\\"]"))
 (def escape-re (re-pattern "([\\\\\"])"))
 
 (defn literalize-array [condition]
-  (let [{:keys [value offset]} condition]
+  (let [{:keys [value]} condition]
     (if (sequential? value)
       (let [sanitized-values
             (map
@@ -64,38 +62,43 @@
               value)]
         (-> condition
           (update :params conj (str "{" (str/join "," sanitized-values) "}"))
-          (assoc :value (str "$" offset (cast-timestamp value)))))
+          (assoc :value (str "?" (cast-timestamp value)))))
       (-> condition
         (update :params conj value)
-        (assoc :value (str "$" offset (cast-timestamp value)))))))
+        (assoc :value (str "?" (cast-timestamp value)))))))
+
+(defn default-param-mutator [{:keys [value] :as condition}]
+  (-> condition
+    (update :params conj value)
+    (assoc :value (str "?" (cast-timestamp value)))))
 
 (def operations
   {"=" {:operator "=" :mutator equality}
    "!" {:operator "<>" :mutator equality}
-   ">" {:operator ">"}
-   "<" {:operator "<"}
-   ">=" {:operator ">="}
-   "<=" {:operator "<="}
+   ">" {:operator ">" :mutator default-param-mutator}
+   "<" {:operator "<" :mutator default-param-mutator}
+   ">=" {:operator ">=" :mutator default-param-mutator}
+   "<=" {:operator "<=" :mutator default-param-mutator}
    "!=" {:operator "<>" :mutator equality}
    "<>" {:operator "<>" :mutator equality}
    "between" {:operator "BETWEEN" :mutator build-between}
    "@>" {:operator "@>" :mutator literalize-array}
    "<@" {:operator "<@" :mutator literalize-array}
    "&&" {:operator "&&" :mutator literalize-array}
-   "~~" {:operator "LIKE"}
-   "like" {:operator "LIKE"}
-   "!~~" {:operator "NOT LIKE"}
-   "not like" {:operator "NOT LIKE"}
-   "~~*" {:operator "ILIKE"}
-   "ilike" {:operator "ILIKE"}
-   "!~~*" {:operator "NOT ILIKE"}
-   "not ilike" {:operator "NOT ILIKE"}
-   "similar to" {:operator "SIMILAR TO"}
-   "not similar to" {:operator "NOT SIMILAR TO"}
-   "~" {:operator "~"}
-   "!~" {:operator "!~"}
-   "~*" {:operator "~*"}
-   "!~*" {:operator "!~*"}
+   "~~" {:operator "LIKE" :mutator default-param-mutator}
+   "like" {:operator "LIKE" :mutator default-param-mutator}
+   "!~~" {:operator "NOT LIKE" :mutator default-param-mutator}
+   "not like" {:operator "NOT LIKE" :mutator default-param-mutator}
+   "~~*" {:operator "ILIKE" :mutator default-param-mutator}
+   "ilike" {:operator "ILIKE" :mutator default-param-mutator}
+   "!~~*" {:operator "NOT ILIKE" :mutator default-param-mutator}
+   "not ilike" {:operator "NOT ILIKE" :mutator default-param-mutator}
+   "similar to" {:operator "SIMILAR TO" :mutator default-param-mutator}
+   "not similar to" {:operator "NOT SIMILAR TO" :mutator default-param-mutator}
+   "~" {:operator "~" :mutator default-param-mutator}
+   "!~" {:operator "!~" :mutator default-param-mutator}
+   "~*" {:operator "~*" :mutator default-param-mutator}
+   "!~*" {:operator "!~*" :mutator default-param-mutator}
    "is" {:operator "IS" :mutator build-is}
    "is not" {:operator "IS NOT" :mutator build-is}
    "is distinct from" {:operator "IS DISTINCT FROM"}

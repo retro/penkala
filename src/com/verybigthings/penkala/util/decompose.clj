@@ -1,5 +1,6 @@
 (ns com.verybigthings.penkala.util.decompose
-  (:require [clojure.spec.alpha :as s]))
+  (:require [clojure.spec.alpha :as s]
+            [com.verybigthings.penkala.util.core :refer [as-vec]]))
 
 (s/def ::decompose-to #{:dict :coll :map})
 
@@ -33,9 +34,6 @@
     :opt-un [::decompose-to]))
 
 (def nil-pks-err)
-
-(defn as-coll [val]
-  (if (sequential? val) val [val]))
 
 (defn assoc-columns [acc renames row]
   (reduce-kv
@@ -78,7 +76,7 @@
        columns))))
 
 (defn build [acc schema idx row]
-  (let [pks (-> schema :pk as-coll)
+  (let [pks (-> schema :pk as-vec)
         id (select-keys row pks)
         {:keys [renames schemas]} (expand-columns (:columns schema))]
     (if (every? nil? (vals id))
@@ -124,13 +122,13 @@
 (defn decompose [schema data]
   (when (and (seq schema) (seq data))
     (s/assert ::schema schema)
-    (let [pks (-> schema :pk as-coll)
+    (let [pks (-> schema :pk as-vec)
           mapping (reduce
                     (fn [acc [idx row]]
                       (assert (not (every? nil? (-> row (select-keys pks) vals))) nil-pks-err)
                       (build acc schema idx row))
                     {}
-                    (map-indexed (fn [idx v] [idx v]) (as-coll data)))]
+                    (map-indexed (fn [idx v] [idx v]) (as-vec data)))]
       (transform schema mapping))))
 
 (s/fdef decompose
