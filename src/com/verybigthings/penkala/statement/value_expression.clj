@@ -10,9 +10,8 @@
       (q (path-prefix-join (map name col-path)))
       (q rel-name))))
 
-(declare compile-vex)
-
 (defmulti compile-function-call (fn [acc env rel function-name args] function-name))
+(defmulti compile-vex (fn [acc env rel [vex-type & _]] vex-type))
 
 (defmethod compile-function-call :default [acc env rel function-name args]
   (let [sql-function-name (->SCREAMING_SNAKE_CASE_STRING function-name)
@@ -25,14 +24,13 @@
       (update :query conj (str sql-function-name "(" (str/join " " query) ")"))
       (update :params into params))))
 
-(defmulti compile-vex (fn [acc env rel [vex-type & _]] vex-type))
 
 (defmethod compile-vex :default [acc env rel [vex-type & args]]
   (throw
     (ex-info
       (str "com.verybigthins.penkala.statement.value-expression/compile-vex multimethod not implemented for " vex-type)
-      {:value-expression/type vex-type
-       :value-expression/args args})))
+      {:type vex-type
+       :args args})))
 
 (defmethod compile-vex :function-call [acc env rel [_ {:keys [fn args]}]]
   (compile-function-call acc env rel fn args))
@@ -41,9 +39,11 @@
   (let [col-path (:path col)
         col-rel (if (seq col-path) (get-in rel (expand-join-path col-path)) rel)
         col-def (get-in col-rel [:columns (:id col)])]
-    (if (string? col-def)
-      (update acc :query conj (str (get-resolved-column-prefix env rel col) "." (q col-def)))
-      (compile-vex acc env rel col-def))))
+    (case (:type col-def)
+      :concrete
+      (update acc :query conj (str (get-resolved-column-prefix env rel col) "." (q (:name col-def))))
+      :virtual
+      (compile-vex acc env rel (:value-expression col-def)))))
 
 (defmethod compile-vex :value [acc _ _ [_ val]]
   (-> acc

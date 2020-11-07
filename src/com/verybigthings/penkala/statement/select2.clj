@@ -23,14 +23,16 @@
          (reduce
            (fn [acc alias]
              (let [col-id    (get-in rel [:column-aliases alias])
-                   col       (get-in rel [:columns col-id])
+                   col-def   (get-in rel [:columns col-id])
                    rel-alias (if (seq path-prefix)
                                (path-prefix-join (map name path-prefix))
                                (get-in rel [:spec :name]))
                    col-alias (if (seq path-prefix) [rel-alias (name alias)] [(name alias)])]
-               (if (string? col)
-                 (update acc :query conj (str (q rel-alias) "." (q col) " AS " (q (path-prefix-join col-alias))))
-                 (let [{:keys [query params]} (compile-vex {:query [] :params []} env rel col)]
+               (case (:type col-def)
+                 :concrete
+                 (update acc :query conj (str (q rel-alias) "." (q (:name col-def)) " AS " (q (path-prefix-join col-alias))))
+                 :virtual
+                 (let [{:keys [query params]} (compile-vex {:query [] :params []} env rel (:value-expression col-def))]
                    (-> acc
                      (update :params into params)
                      (update :query conj (str (str/join " " query) " AS " (q (path-prefix-join col-alias)))))))))

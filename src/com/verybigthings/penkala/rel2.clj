@@ -192,7 +192,7 @@
     (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-clause))
           id (keyword (gensym "column-"))]
       (-> this
-        (assoc-in [:columns id] processed-extend)
+        (assoc-in [:columns id] {:type :virtual :value-expression processed-extend})
         (assoc-in [:column-aliases col-name] id)
         (update :projection conj col-name)))))
 
@@ -202,7 +202,7 @@
       (fn [acc col]
         (let [id (keyword (gensym "column-"))]
           (-> acc
-            (assoc-in [:columns id] col)
+            (assoc-in [:columns id] {:type :concrete :name col})
             (assoc-in [:column-aliases (->kebab-case-keyword col)] id))))
       rel
       columns)))
