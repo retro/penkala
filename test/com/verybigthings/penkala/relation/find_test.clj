@@ -1,8 +1,12 @@
 (ns com.verybigthings.penkala.relation.find-test
   (:require [clojure.test :refer :all]
-            [com.verybigthings.penkala.db :refer [query query-one]]
+            [com.verybigthings.penkala.db :refer [query query-one prettify-sql]]
             [com.verybigthings.penkala.relation :as r]
-            [com.verybigthings.penkala.test-helpers :as th :refer [db-uri *db*]]))
+            [com.verybigthings.penkala.test-helpers :as th :refer [db-uri *db*]]
+            [com.verybigthings.penkala.rel :as rel]
+            [com.verybigthings.penkala.rel2 :as rel2]
+            [com.verybigthings.penkala.statement.select2 :as sel]
+            [next.jdbc :as jdbc]))
 
 (use-fixtures :once (partial th/reset-db-fixture "data-all"))
 
@@ -34,3 +38,114 @@
                                                             [:or {:in_stock false} {"price >" 12}]])))]
     (is (= 2 (:id res-1) (:id res-2)))
     (is (= res-1 res-2))))
+
+
+#_(def db-spec
+    [{:schema "public",
+      :is_insertable_into true,
+      :fk_origin_columns nil,
+      :pk ["id"],
+      :parent nil,
+      :columns ["body" "id" "search"],
+      :name "uuid_docs",
+      :fk_dependent_columns nil,
+      :fk_origin_schema nil,
+      :fk_origin_name nil,
+      :fk nil}
+     {:schema "public",
+      :is_insertable_into true,
+      :fk_origin_columns nil,
+      :pk ["id"],
+      :parent nil,
+      :columns
+      ["created_at"
+       "description"
+       "id"
+       "in_stock"
+       "name"
+       "price"
+       "specs"
+       "tags"],
+      :name "products",
+      :fk_dependent_columns nil,
+      :fk_origin_schema nil,
+      :fk_origin_name nil,
+      :fk nil}
+     {:schema "public",
+      :is_insertable_into true,
+      :fk_origin_columns nil,
+      :pk ["id"],
+      :parent nil,
+      :columns ["id" "notes" "ordered_at" "product_id" "user_id"],
+      :name "orders",
+      :fk_dependent_columns nil,
+      :fk_origin_schema nil,
+      :fk_origin_name nil,
+      :fk nil}
+     {:schema "public",
+      :is_insertable_into true,
+      :fk_origin_columns nil,
+      :pk ["id"],
+      :parent nil,
+      :columns ["body" "id" "search"],
+      :name "docs",
+      :fk_dependent_columns nil,
+      :fk_origin_schema nil,
+      :fk_origin_name nil,
+      :fk nil}
+     {:schema "public",
+      :is_insertable_into true,
+      :fk_origin_columns nil,
+      :pk ["Id"],
+      :parent nil,
+      :columns ["Email" "Id" "Name" "search"],
+      :name "Users",
+      :fk_dependent_columns nil,
+      :fk_origin_schema nil,
+      :fk_origin_name nil,
+      :fk nil}])
+
+(deftest testing1
+  (let [products (rel2/spec->relation {:schema "public",
+                                       :is_insertable_into true,
+                                       :fk_origin_columns nil,
+                                       :pk ["id"],
+                                       :parent nil,
+                                       :columns ["created_at" "description" "id" "in_stock" "name" "price" "specs" "tags"],
+                                       :name "products",
+                                       :fk_dependent_columns nil,
+                                       :fk_origin_schema nil,
+                                       :fk_origin_name nil,
+                                       :fk nil})
+        orders (rel2/spec->relation {:schema "public",
+                                     :is_insertable_into true,
+                                     :fk_origin_columns nil,
+                                     :pk ["id"],
+                                     :parent nil,
+                                     :columns ["id" "notes" "ordered_at" "product_id" "user_id"],
+                                     :name "orders",
+                                     :fk_dependent_columns nil,
+                                     :fk_origin_schema nil,
+                                     :fk_origin_name nil,
+                                     :fk nil})
+        users (rel2/spec->relation {:schema "public",
+                                    :is_insertable_into true,
+                                    :fk_origin_columns nil,
+                                    :pk ["Id"],
+                                    :parent nil,
+                                    :columns ["Email" "Id" "Name" "search"],
+                                    :name "Users",
+                                    :fk_dependent_columns nil,
+                                    :fk_origin_schema nil,
+                                    :fk_origin_name nil,
+                                    :fk nil})
+        rel (-> products
+              (rel2/join :left (-> orders
+                                 (rel2/join :left users :users [:= :user-id :users/id])) :orders [:= :id :orders/product-id])
+              (rel2/where [:= :id 1]))]
+    ;;   (println (jdbc/execute! db-uri [(rel/to-sql rel)]))
+    (clojure.pprint/pprint rel)
+    (println (prettify-sql (first (sel/format-query {} rel {}))))
+    (println (sel/format-query {} rel {}))
+    ;;(println (jdbc/execute! db-uri (sel/format-query {} rel {})))
+    (is false)))

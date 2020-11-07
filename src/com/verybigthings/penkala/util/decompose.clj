@@ -90,6 +90,7 @@
 (defn transform [schema mapping]
   (let [decompose-to (get schema :decompose-to :coll)
         pk (:pk schema)
+        decompose-name (:decompose/name schema)
         {:keys [schemas]} (expand-columns (:columns schema))
         transformed (reduce-kv
                       (fn [acc k row]

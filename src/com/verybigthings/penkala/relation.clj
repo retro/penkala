@@ -3,6 +3,7 @@
             [clojure.spec.alpha :as s]
             [com.verybigthings.penkala.util.parse-key :as p]
             [com.verybigthings.penkala.statement.operations :as o]
+            [com.verybigthings.penkala.util.decompose :as d]
             [clojure.string :as str]))
 
 (s/def ::criteria-map
@@ -86,7 +87,9 @@
                            parsed-v (when (or (string? v) (keyword? v)) (p/parse-key relation (name v)))
                            parsed-k (p/with-appendix lhs-relation (name k) o/operations v)]
                        (if (contains? (:relation/column-names relation) (:query/field parsed-v))
-                         (conj p-acc (assoc parsed-k :value/field parsed-v))
+                         (conj p-acc (-> parsed-k
+                                       (update :relation/alias #(or % (:relation/alias lhs-relation)))
+                                       (assoc :value/field parsed-v)))
                          (conj p-acc parsed-k))))
                    []
                    predicate)]
@@ -129,8 +132,36 @@
 (defn limit [relation limit]
   (assoc relation :query/limit limit))
 
+(defn get-join-alias [join-key]
+  (let [join-key-name (name join-key)]
+    (-> join-key-name (str/split #"\.") last)))
+
 (defn inner-join [relation join-key join-relation join-restriction]
   (s/assert ::where join-restriction)
-  (let [join-relation' (assoc join-relation :relation/alias (name join-key) :join/kind :inner)
-        relation' (assoc-in relation [:relation/joins join-key] join-relation')]
-    (assoc-in relation' [:relation/joins join-key :join/on] (compile-predicate relation' join-restriction join-key))))
+  (let [join-alias     (get-join-alias join-key)
+        join-relation' (assoc join-relation :relation/alias join-alias :join/kind :inner)
+        relation' (assoc-in relation [:relation/joins join-alias] join-relation')]
+    (assoc-in relation' [:relation/joins join-alias :join/on] (compile-predicate relation' join-restriction join-alias))))
+
+(defn get-decomposition-schema
+  ([relation] (get-decomposition-schema relation ""))
+  ([relation prefix]
+   (let [pk (mapv (fn [c-name] (keyword (if (seq prefix) (str prefix "__" c-name) c-name))) (:relation/pk relation))
+         cols-schema (reduce
+                       (fn [acc c-name]
+                         (let [full-c-name (if (seq prefix) (str prefix "__" c-name) c-name)]
+                           (assoc acc (keyword full-c-name) (keyword c-name))))
+                       {}
+                       (:relation/column-names relation))
+         joins-schema (reduce-kv
+                        (fn [acc j-key j]
+                          (assoc acc (keyword j-key) (get-decomposition-schema j j-key;;(if (seq prefix) (str prefix "__" (name j-key)) (name j-key))
+                                                       )))
+                        {}
+                        (:relation/joins relation))]
+     {:pk pk
+      :columns (merge cols-schema joins-schema)})))
+
+(defn decompose-results [relation results]
+  (let [decomposition-schema (get-decomposition-schema relation)]
+    (d/decompose decomposition-schema results)))

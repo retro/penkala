@@ -12,6 +12,7 @@
     <orderEntry type="library" name="Deps: org.clojure/clojure:1.10.1" level="project" />
     <orderEntry type="library" name="Deps: org.clojure/tools.logging:1.1.0" level="project" />
     <orderEntry type="library" name="Deps: org.clojure/core.specs.alpha:0.2.44" level="project" />
+    <orderEntry type="library" name="Deps: com.github.vertical-blank/sql-formatter:1.0.3" level="project" />
     <orderEntry type="library" name="Deps: lambdaisland/kaocha:1.0.700" level="project" />
     <orderEntry type="library" name="Deps: expound:0.8.5" level="project" />
     <orderEntry type="library" name="Deps: org.clojure/spec.alpha:0.2.187" level="project" />

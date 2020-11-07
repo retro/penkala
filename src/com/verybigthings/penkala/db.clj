@@ -8,7 +8,8 @@
             [com.verybigthings.penkala.next-jdbc]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.util.core :refer [select-keys-with-default]]
-            [com.verybigthings.penkala.statement.select :as select]))
+            [com.verybigthings.penkala.statement.select :as select])
+  (:import [com.github.vertical_blank.sqlformatter SqlFormatter]))
 
 (def default-next-jdbc-options {:builder-fn rs/as-unqualified-lower-maps})
 
@@ -64,15 +65,26 @@
            views     (exec-internal-db-script db-spec :get-views
                        (select-keys-with-default
                          config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))]
+       (clojure.pprint/pprint tables)
        (-> db
          (register-relations (concat tables views)))))))
+
+(defn prettify-sql [sql]
+  (SqlFormatter/format sql))
 
 (defn query [db-spec db relation]
   (let [relation' (if (keyword? relation) (get db relation) relation)
         sqlvec (select/get-query db relation')]
-    (jdbc/execute! db-spec sqlvec default-next-jdbc-options)))
+    (println (prettify-sql (first sqlvec)))
+    (println (rest sqlvec))
+    (->> (jdbc/execute! db-spec sqlvec default-next-jdbc-options)
+      (r/decompose-results relation'))))
 
 (defn query-one [db-spec db relation]
   (let [relation' (if (keyword? relation) (get db relation) relation)
         sqlvec (select/get-query db (-> relation' (r/limit 1)))]
-    (jdbc/execute-one! db-spec sqlvec default-next-jdbc-options)))
+    (println (prettify-sql (first sqlvec)))
+    (println (rest sqlvec))
+    (->> (jdbc/execute! db-spec sqlvec default-next-jdbc-options)
+      (r/decompose-results relation')
+      first)))
