@@ -140,9 +140,11 @@
                                     :fk_origin_name nil,
                                     :fk nil})
         rel (-> products
-              (rel2/join :left (-> orders
-                                 (rel2/join :left users :users [:= :user-id :users/id])) :orders [:= :id :orders/product-id])
-              (rel2/where [:= :id 1]))]
+              (rel2/join :left orders :orders [:= :id :orders/product-id])
+              (rel2/rename :name :product-name)
+              (rel2/extend :upper-product-name [:upper :product-name])
+              (rel2/rename :upper-product-name :upn)
+              (rel2/where [:and [:= :upn "FOO"] [:= :id 1]]))]
     ;;   (println (jdbc/execute! db-uri [(rel/to-sql rel)]))
     (clojure.pprint/pprint rel)
     (println (prettify-sql (first (sel/format-query {} rel {}))))

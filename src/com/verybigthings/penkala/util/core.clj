@@ -22,4 +22,4 @@
   (if (sequential? val) (vec val) [val]))
 
 (defn expand-join-path [path]
-  (mapcat (fn [v] [:state :joins (keyword v) :relation]) path))
+  (mapcat (fn [v] [:joins (keyword v) :relation]) path))

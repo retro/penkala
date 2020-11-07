@@ -4,12 +4,26 @@
             [com.verybigthings.penkala.util.core :refer [q expand-join-path path-prefix-join join-separator]]))
 
 (defn get-resolved-column-prefix [env rel col]
-  (println "RESOLVED COLUMN" col)
   (let [col-path (concat (:join/path-prefix env) (:path col))
         rel-name (get-in rel [:spec :name])]
     (if (seq col-path)
       (q (path-prefix-join (map name col-path)))
       (q rel-name))))
+
+(declare compile-vex)
+
+(defmulti compile-function-call (fn [acc env rel function-name args] function-name))
+
+(defmethod compile-function-call :default [acc env rel function-name args]
+  (let [sql-function-name (->SCREAMING_SNAKE_CASE_STRING function-name)
+        {:keys [query params]} (reduce
+                                 (fn [acc arg]
+                                   (compile-vex acc env rel arg))
+                                 {:query [] :params []}
+                                 args)]
+    (-> acc
+      (update :query conj (str sql-function-name "(" (str/join " " query) ")"))
+      (update :params into params))))
 
 (defmulti compile-vex (fn [acc env rel [vex-type & _]] vex-type))
 
@@ -20,13 +34,18 @@
       {:value-expression/type vex-type
        :value-expression/args args})))
 
+(defmethod compile-vex :function-call [acc env rel [_ {:keys [fn args]}]]
+  (compile-function-call acc env rel fn args))
+
 (defmethod compile-vex :resolved-column [acc env rel [_ col]]
   (let [col-path (:path col)
         col-rel (if (seq col-path) (get-in rel (expand-join-path col-path)) rel)
-        col-def (get-in col-rel [:state :columns (:id col)])]
-    (update acc :query conj (str (get-resolved-column-prefix env rel col) "." (q col-def)))))
+        col-def (get-in col-rel [:columns (:id col)])]
+    (if (string? col-def)
+      (update acc :query conj (str (get-resolved-column-prefix env rel col) "." (q col-def)))
+      (compile-vex acc env rel col-def))))
 
-(defmethod compile-vex :value [acc env rel [_ val]]
+(defmethod compile-vex :value [acc _ _ [_ val]]
   (-> acc
     (update :query conj "?")
     (update :params conj val)))
@@ -37,3 +56,21 @@
         arg2-acc (compile-vex  {:query [] :params []} env rel arg2)]
     {:query (-> query (into (:query arg1-acc)) (conj sql-op) (into (:query arg2-acc)))
      :params (-> params (into (:params arg1-acc)) (into (:params arg2-acc)))}))
+
+(defmethod compile-vex :boolean [acc _ _ [_ value]]
+  (update acc :query conj (if value "TRUE" "FALSE")))
+
+(defmethod compile-vex :connective [acc env rel [_ {:keys [op args]}]]
+  (if (= 1 (count args))
+    (compile-vex acc env rel (first args))
+    (let [sql-op (->SCREAMING_SNAKE_CASE_STRING op)
+          {:keys [query params]} (reduce
+                                   (fn [acc arg]
+                                     (-> acc
+                                       (compile-vex env rel arg)
+                                       (update :query conj sql-op)))
+                                   {:query [] :params []}
+                                   args)]
+      (-> acc
+        (update :params into params)
+        (update :query conj (str "(" (str/join " " (butlast query)) ")"))))))

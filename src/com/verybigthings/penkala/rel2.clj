@@ -1,9 +1,13 @@
 (ns com.verybigthings.penkala.rel2
+  (:refer-clojure :exclude [group-by])
   (:require [clojure.spec.alpha :as s]
-            [camel-snake-kebab.core :refer [->kebab-case-keyword]]
+            [camel-snake-kebab.core :refer [->kebab-case-keyword ->kebab-case-string]]
             [clojure.string :as str]
             [clojure.walk :refer [prewalk]]
             [com.verybigthings.penkala.util.core :refer [expand-join-path]]))
+
+(defn ex-info-missing-column [rel column-name]
+  (ex-info (str "Column " column-name " doesn't exist") {:column column-name :rel rel}))
 
 (defrecord Wrapped [subject-type subject])
 
@@ -21,18 +25,11 @@
    :binary #{:< :> :<= :>= := :<> :!=}
    :ternary #{:between :not-between :between-symmetric :not-between-symmetric :is-distinct-from :is-not-distinct-from}})
 
-(s/def ::conjunction
+(s/def ::connective
   (s/and
     vector?
     (s/cat
-      :op #(= :and %)
-      :args (s/+ ::value-expression))))
-
-(s/def ::disjunction
-  (s/and
-    vector?
-    (s/cat
-      :op #(= :or %)
+      :op #(contains? #{:and :or} %)
       :args (s/+ ::value-expression))))
 
 (s/def ::negation
@@ -40,7 +37,7 @@
     vector?
     (s/cat
       :op #(= :not %)
-      :args (s/+ ::value-expression))))
+      :arg1 ::value-expression)))
 
 (s/def ::unary-operation
   (s/and
@@ -86,8 +83,7 @@
   (s/or
     :boolean boolean?
     :keyword keyword?
-    :conjunction ::conjunction
-    :disjunction ::disjunction
+    :connective ::connective
     :negation ::negation
     :unary-operation ::unary-operation
     :binary-operation ::binary-operation
@@ -102,13 +98,13 @@
   (let [column-ns        (namespace column)
         column-join-path (when (seq column-ns) (str/split column-ns #"\."))
         column-name (name column)]
-    (println "COLUMN JOIN PATH" (seq column-join-path) (count column-join-path))
     (if (seq column-join-path)
       (let [column-join-path' (map keyword column-join-path)
             column-rel (get-in rel (expand-join-path column-join-path'))
-            id (get-in column-rel [:state :column-aliases (keyword column-name)])]
-        {:path column-join-path' :id id :name column-name :original column})
-      (when-let [id (get-in rel [:state :column-aliases (keyword column-name)])]
+            id (get-in column-rel [:column-aliases (keyword column-name)])]
+        (when id
+          {:path column-join-path' :id id :name column-name :original column}))
+      (when-let [id (get-in rel [:column-aliases (keyword column-name)])]
         {:id id :name column-name :original column}))))
 
 (defn process-value-expression [rel vex]
@@ -121,7 +117,7 @@
             (let [column-name (-> args first :subject)
                   column (resolve-column rel column-name)]
               (when (nil? column)
-                (throw (ex-info (str "Column " column-name " doesn't exist") {:column column-name :rel rel})))
+                (throw (ex-info-missing-column rel column-name)))
               [:resolved-column column])
 
             (= :wrapped-value node-type)
@@ -146,89 +142,75 @@
 
 (defprotocol IRelation
   (join [this join-type join-rel join-alias] [this join-type join-rel join-alias join-on])
-  (where [this vex]))
+  (where [this where-clause])
+  (or-where [this where-clause])
+  ;;(group-by [this groupings])
+  ;;(having [this vex])
+  ;;(or-having [this vex])
+  ;;(offset [this offset])
+  ;;(limit [this limit])
+  ;;(order-by [this orderings])
+  (extend [this col-name extend-clause])
+  (rename [this prev-col-name next-col-name])
+  ;;(select [this projection])
+  ;;(distinct [this] [this distinct-on])
+  ;;(only [this] [this only?])
+  )
 
-(defrecord Relation [spec state]
+(defrecord Relation [spec]
   IRelation
   (join [this join-type join-rel join-alias]
     (throw (ex-info "Join without clause not implemented" {})))
   (join [this join-type join-rel join-alias join-on]
     (s/assert ::value-expression join-on)
-    (let [with-join (assoc-in this [:state :joins join-alias] {:relation join-rel :type join-type})
+    (let [with-join (assoc-in this [:joins join-alias] {:relation join-rel :type join-type})
           join-on' (process-value-expression with-join (s/conform ::value-expression join-on))]
-      (assoc-in with-join [:state :joins join-alias :on] join-on')))
-  (where [this where]
-    (s/assert ::value-expression where)
-    (assoc-in this [:state :where] (process-value-expression this (s/conform ::value-expression where)))))
+      (assoc-in with-join [:joins join-alias :on] join-on')))
+  (where [this where-clause]
+    (s/assert ::value-expression where-clause)
+    (let [prev-where      (:where this)
+          processed-where (process-value-expression this (s/conform ::value-expression where-clause))]
+      (if prev-where
+        (assoc this :where [:connective {:op :and :args [prev-where processed-where]}])
+        (assoc this :where processed-where))))
+  (or-where [this where-clause]
+    (if-let [prev-where (:where this)]
+      (let [processed-where (process-value-expression this (s/conform ::value-expression where-clause))]
+        (assoc this :where [:connective {:op :or :args [prev-where processed-where]}]))
+      (where this where-clause)))
+  (rename [this prev-col-name next-col-name]
+    (let [id (get-in this [:column-aliases prev-col-name])]
+      (when (nil? id)
+        (throw (ex-info-missing-column this prev-col-name)))
+      (cond-> (update this :column-aliases #(-> % (dissoc prev-col-name) (assoc next-col-name id)))
+        (contains? (:projection this) prev-col-name)
+        (update :projection #(-> % (disj prev-col-name) (conj next-col-name))))))
+  (extend [this col-name extend-clause]
+    (s/assert ::value-expression extend-clause)
+    (when (contains? (:column-aliases this) col-name)
+      (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
+    (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-clause))
+          id (keyword (gensym "column-"))]
+      (-> this
+        (assoc-in [:columns id] processed-extend)
+        (assoc-in [:column-aliases col-name] id)
+        (update :projection conj col-name)))))
 
-(defn add-columns [state spec]
+(defn with-columns [rel spec]
   (let [columns (:columns spec)]
-    (merge state (reduce
-                   (fn [acc col]
-                     (let [id (keyword (gensym "column-"))]
-                       (-> acc
-                         (assoc-in [:columns id] col)
-                         (assoc-in [:column-aliases (->kebab-case-keyword col)] id))))
-                   {:columns {} :column-aliases {}}
-                   columns))))
+    (reduce
+      (fn [acc col]
+        (let [id (keyword (gensym "column-"))]
+          (-> acc
+            (assoc-in [:columns id] col)
+            (assoc-in [:column-aliases (->kebab-case-keyword col)] id))))
+      rel
+      columns)))
 
-(defn add-projection [state]
-  (assoc state :projection (set (keys (:column-aliases state)))))
+(defn with-default-projection [rel]
+  (assoc rel :projection (set (keys (:column-aliases rel)))))
 
 (defn spec->relation [spec]
-  (->Relation spec
-    (-> {}
-      (add-columns spec)
-      (add-projection))))
-
-(comment
-  (def db-spec
-    {:products {:schema "public",
-                :is_insertable_into true,
-                :fk_origin_columns nil,
-                :pk ["id"],
-                :parent nil,
-                :columns
-                ["created_at"
-                 "description"
-                 "id"
-                 "in_stock"
-                 "name"
-                 "price"
-                 "specs"
-                 "tags"],
-                :name "products",
-                :fk_dependent_columns nil,
-                :fk_origin_schema nil,
-                :fk_origin_name nil,
-                :fk nil}
-     :orders {:schema "public",
-              :is_insertable_into true,
-              :fk_origin_columns nil,
-              :pk ["id"],
-              :parent nil,
-              :columns ["id" "notes" "ordered_at" "product_id" "user_id"],
-              :name "orders",
-              :fk_dependent_columns nil,
-              :fk_origin_schema nil,
-              :fk_origin_name nil,
-              :fk nil}
-     :users {:schema "public",
-             :is_insertable_into true,
-             :fk_origin_columns nil,
-             :pk ["Id"],
-             :parent nil,
-             :columns ["Email" "Id" "Name" "search"],
-             :name "Users",
-             :fk_dependent_columns nil,
-             :fk_origin_schema nil,
-             :fk_origin_name nil,
-             :fk nil}})
-
-  (s/conform ::value-expression [:and [:or [:= :a :bb (column :foo/bar)]] [:= :foo [:cast :bar/baz :integer]]])
-
-  (let [products (spec->relation (:products db-spec))
-        orders   (spec->relation (:orders db-spec))
-        users    (spec->relation (:users db-spec))]
-    (clojure.pprint/pprint (where users [:= :id 1]))
-    #_(println (join products orders :orders [:= :id :orders/product-id]))))
+  (-> (->Relation (assoc spec :namespace (->kebab-case-string (:name spec))))
+    (with-columns spec)
+    (with-default-projection)))

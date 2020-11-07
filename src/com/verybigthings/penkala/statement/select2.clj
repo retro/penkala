@@ -3,21 +3,13 @@
             [clojure.string :as str]
             [com.verybigthings.penkala.util.core :refer [q path-prefix-join join-separator]]))
 
-(defn get-rel-alias [rel]
-  (q (or (get-in rel [:spec :name]) (get-in rel [:state :alias]))))
-
-(defn get-col-prefix [rel]
-  (when-let [alias (get-in rel [:state :alias])]
-    (str alias join-separator)))
-
 (defn add-from [acc env rel]
   (let [rel-name   (get-in rel [:spec :name])
-        rel-schema (get-in rel [:spec :schema])
-        rel-alias  (get-in rel [:state :alias])]
+        rel-schema (get-in rel [:spec :schema])]
     (update acc :query into ["FROM"
-                             (str (q rel-schema) "." (q rel-name))
+                             (q rel-name)
                              "AS"
-                             (q (str (get-col-prefix rel) (or rel-alias rel-name)))])))
+                             (q rel-name)])))
 
 (defn add-projection
   ([acc env rel]
@@ -26,26 +18,34 @@
        (update :query conj (str/join ", " query))
        (update :params into params))))
   ([acc env rel path-prefix]
-   (let [projection (get-in rel [:state :projection])
-         query      (reduce
-                      (fn [acc alias]
-                        (let [col-id    (get-in rel [:state :column-aliases alias])
-                              col       (get-in rel [:state :columns col-id])
-                              rel-alias (if (seq path-prefix)
-                                          (path-prefix-join (map name path-prefix))
-                                          (get-in rel [:spec :name]))
-                              col-alias (if (seq path-prefix) [rel-alias (name alias)] [(name alias)])]
-                          (conj acc (str (q rel-alias) "." (q col) " AS " (q (path-prefix-join col-alias))))))
-                      []
-                      projection)]
+   (let [projection (get-in rel [:projection])
+         {:keys [query params]}
+         (reduce
+           (fn [acc alias]
+             (let [col-id    (get-in rel [:column-aliases alias])
+                   col       (get-in rel [:columns col-id])
+                   rel-alias (if (seq path-prefix)
+                               (path-prefix-join (map name path-prefix))
+                               (get-in rel [:spec :name]))
+                   col-alias (if (seq path-prefix) [rel-alias (name alias)] [(name alias)])]
+               (if (string? col)
+                 (update acc :query conj (str (q rel-alias) "." (q col) " AS " (q (path-prefix-join col-alias))))
+                 (let [{:keys [query params]} (compile-vex {:query [] :params []} env rel col)]
+                   (-> acc
+                     (update :params into params)
+                     (update :query conj (str (str/join " " query) " AS " (q (path-prefix-join col-alias)))))))))
+           {:query [] :params []}
+           projection)]
      (reduce-kv
        (fn [acc' alias {:keys [relation]}]
          (add-projection acc' env relation (conj path-prefix alias)))
-       (update acc :query into query)
-       (get-in rel [:state :joins])))))
+       (-> acc
+         (update :params into params)
+         (update :query into query))
+       (get-in rel [:joins])))))
 
 (defn add-where [acc env rel]
-  (if-let [where (get-in rel [:state :where])]
+  (if-let [where (get-in rel [:where])]
     (-> acc
       (update :query conj "WHERE")
       (compile-vex env rel where))
@@ -66,7 +66,7 @@
            (update :query into query)
            (add-joins env join-relation (conj path-prefix alias)))))
      acc
-     (get-in rel [:state :joins]))))
+     (get-in rel [:joins]))))
 
 (defn format-query [env rel param-values]
   (let [{:keys [query params]} (-> {:query ["SELECT"] :params []}
