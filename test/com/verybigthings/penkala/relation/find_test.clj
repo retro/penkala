@@ -139,15 +139,26 @@
                                     :fk_origin_schema nil,
                                     :fk_origin_name nil,
                                     :fk nil})
-        rel (-> products
-              (rel2/join :left orders :orders [:= :id :orders/product-id])
-              (rel2/rename :name :product-name)
-              (rel2/extend :upper-product-name [:upper :product-name])
-              (rel2/rename :upper-product-name :upn)
-              (rel2/where [:and [:= :upn "FOO"] [:= :id 1]]))]
+        rel      (-> products
+                   (rel2/extend-with-aggregate :count-products :count 1)
+                   (rel2/select [:id :count-products])
+                   ;;(rel2/only)
+                   ;;(rel2/distinct [:name (rel2/column :id)])
+                   ;;(rel2/distinct false)
+                   (rel2/join :left orders :orders [:= :id :orders/product-id])
+                   ;;(rel2/rename :name :product-name)
+                   ;;(rel2/extend :upper-product-name [:upper :product-name])
+                   ;;(rel2/rename :upper-product-name :upn)
+                   ;;(rel2/extend :lpn [:lower :upn])
+                   ;;(rel2/order-by [[:lpn :desc]])
+                   ;;(rel2/select [:lpn])
+                   ;;(rel2/where [:and [:= :upn (rel2/param :product-name)] [:= :id (rel2/param :product-id)]])
+                   ;;(rel2/offset 1)
+                   ;;(rel2/limit 2)
+                   )]
     ;;   (println (jdbc/execute! db-uri [(rel/to-sql rel)]))
     (clojure.pprint/pprint rel)
-    (println (prettify-sql (first (sel/format-query {} rel {}))))
-    (println (sel/format-query {} rel {}))
+    (println (prettify-sql (first (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))))
+    (println (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))
     ;;(println (jdbc/execute! db-uri (sel/format-query {} rel {})))
     (is false)))

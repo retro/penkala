@@ -1,13 +1,14 @@
 (ns com.verybigthings.penkala.rel2
-  (:refer-clojure :exclude [group-by])
+  (:refer-clojure :exclude [group-by extend distinct])
   (:require [clojure.spec.alpha :as s]
             [camel-snake-kebab.core :refer [->kebab-case-keyword ->kebab-case-string]]
             [clojure.string :as str]
             [clojure.walk :refer [prewalk]]
             [com.verybigthings.penkala.util.core :refer [expand-join-path]]))
 
-(defn ex-info-missing-column [rel column-name]
-  (ex-info (str "Column " column-name " doesn't exist") {:column column-name :rel rel}))
+(defn ex-info-missing-column [rel node]
+  (let [column-name (if (keyword? node) node (:subject node))]
+    (ex-info (str "Column " column-name " doesn't exist") {:column column-name :rel rel})))
 
 (defrecord Wrapped [subject-type subject])
 
@@ -79,6 +80,33 @@
 (s/def ::wrapped-param
   #(and (= Wrapped (type %)) (= :param (:subject-type %))))
 
+(s/def ::column-identifier
+  (s/or
+    :keyword keyword?
+    :wrapped-column ::wrapped-column))
+
+(s/def ::order-direction
+  #(contains? #{:asc :desc} %))
+
+(s/def ::order-nulls
+  #(contains? #{:nulls-first :nulls-last} %))
+
+(s/def ::order
+  (s/or
+    :column-identifier ::column-identifier
+    :column (s/cat
+              :column-identifier ::column-identifier)
+    :column-direction (s/cat
+                        :column-identifier ::column-identifier
+                        :order-direction ::order-direction)
+    :column-direction-nulls (s/cat
+                              :column-identifier ::column-identifier
+                              :order-direction ::order-direction
+                              :order-nulls ::order-nulls)))
+
+(s/def ::orders
+  (s/coll-of ::order))
+
 (s/def ::value-expression
   (s/or
     :boolean boolean?
@@ -94,8 +122,12 @@
     :wrapped-value ::wrapped-value
     :value any?))
 
-(defn resolve-column [rel column]
-  (let [column-ns        (namespace column)
+(s/def ::column-list
+  (s/coll-of ::column-identifier))
+
+(defn resolve-column [rel node]
+  (let [column           (if (keyword? node) node (:subject node))
+        column-ns        (namespace column)
         column-join-path (when (seq column-ns) (str/split column-ns #"\."))
         column-name (name column)]
     (if (seq column-join-path)
@@ -114,17 +146,16 @@
         (let [[node-type & args] node]
           (cond
             (= :wrapped-column node-type)
-            (let [column-name (-> args first :subject)
-                  column (resolve-column rel column-name)]
+            (let [column (resolve-column rel (first args))]
               (when (nil? column)
-                (throw (ex-info-missing-column rel column-name)))
+                (throw (ex-info-missing-column rel node)))
               [:resolved-column column])
 
             (= :wrapped-value node-type)
-            [:value (-> args :first :subject)]
+            [:value (-> args first :subject)]
 
             (= :wrapped-param node-type)
-            [:param (-> args :first :subject)]
+            [:param (-> args first :subject)]
 
             (= :binary-operation node-type)
             (if (= :!= (-> args first :op))
@@ -140,22 +171,52 @@
         node))
     vex))
 
+(defn process-projection [rel node-list]
+  (reduce
+    (fn [acc [_ node]]
+      (let [column (resolve-column rel node)]
+        (if (or (nil? column) (-> column :path seq))
+          (throw (ex-info-missing-column rel node))
+          (conj acc (if (keyword? node) node (:subject node))))))
+    #{}
+    node-list))
+
+(defn process-orders [rel orders]
+  (map
+    (fn [[node-type node]]
+      (let [node' (if (= :column-identifier node-type) {:column-identifier node} node)
+            column-identifier (-> node' :column-identifier second)
+            column (resolve-column rel column-identifier)]
+        (when (nil? column)
+          (throw (ex-info-missing-column rel column-identifier)))
+        (assoc node' :column [:resolved-column column])))
+    orders))
+
+(defn resolve-columns [rel columns]
+  (reduce
+    (fn [acc [_ node]]
+      (let [column (resolve-column rel node)]
+        (if (or (nil? column))
+          (throw (ex-info-missing-column rel node))
+          (conj acc [:resolved-column column]))))
+    []
+    columns))
+
 (defprotocol IRelation
   (join [this join-type join-rel join-alias] [this join-type join-rel join-alias join-on])
-  (where [this where-clause])
-  (or-where [this where-clause])
-  ;;(group-by [this groupings])
+  (where [this where-expression])
+  (or-where [this where-expression])
   ;;(having [this vex])
   ;;(or-having [this vex])
-  ;;(offset [this offset])
-  ;;(limit [this limit])
-  ;;(order-by [this orderings])
-  (extend [this col-name extend-clause])
+  (offset [this offset])
+  (limit [this limit])
+  (order-by [this orders])
+  (extend [this col-name extend-expression])
+  (extend-with-aggregate [this col-name agg-fn agg-expression])
   (rename [this prev-col-name next-col-name])
-  ;;(select [this projection])
-  ;;(distinct [this] [this distinct-on])
-  ;;(only [this] [this only?])
-  )
+  (select [this projection])
+  (distinct [this] [this distinct-expression])
+  (only [this] [this is-only]))
 
 (defrecord Relation [spec]
   IRelation
@@ -166,18 +227,18 @@
     (let [with-join (assoc-in this [:joins join-alias] {:relation join-rel :type join-type})
           join-on' (process-value-expression with-join (s/conform ::value-expression join-on))]
       (assoc-in with-join [:joins join-alias :on] join-on')))
-  (where [this where-clause]
-    (s/assert ::value-expression where-clause)
+  (where [this where-expression]
+    (s/assert ::value-expression where-expression)
     (let [prev-where      (:where this)
-          processed-where (process-value-expression this (s/conform ::value-expression where-clause))]
+          processed-where (process-value-expression this (s/conform ::value-expression where-expression))]
       (if prev-where
         (assoc this :where [:connective {:op :and :args [prev-where processed-where]}])
         (assoc this :where processed-where))))
-  (or-where [this where-clause]
+  (or-where [this where-expression]
     (if-let [prev-where (:where this)]
-      (let [processed-where (process-value-expression this (s/conform ::value-expression where-clause))]
+      (let [processed-where (process-value-expression this (s/conform ::value-expression where-expression))]
         (assoc this :where [:connective {:op :or :args [prev-where processed-where]}]))
-      (where this where-clause)))
+      (where this where-expression)))
   (rename [this prev-col-name next-col-name]
     (let [id (get-in this [:column-aliases prev-col-name])]
       (when (nil? id)
@@ -185,16 +246,52 @@
       (cond-> (update this :column-aliases #(-> % (dissoc prev-col-name) (assoc next-col-name id)))
         (contains? (:projection this) prev-col-name)
         (update :projection #(-> % (disj prev-col-name) (conj next-col-name))))))
-  (extend [this col-name extend-clause]
-    (s/assert ::value-expression extend-clause)
+  (extend [this col-name extend-expression]
+    (s/assert ::value-expression extend-expression)
     (when (contains? (:column-aliases this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
-    (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-clause))
+    (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-expression))
           id (keyword (gensym "column-"))]
       (-> this
         (assoc-in [:columns id] {:type :virtual :value-expression processed-extend})
         (assoc-in [:column-aliases col-name] id)
-        (update :projection conj col-name)))))
+        (update :projection conj col-name))))
+  (extend-with-aggregate [this col-name agg-fn agg-expression]
+    (s/assert ::value-expression agg-expression)
+    (when (contains? (:column-aliases this) col-name)
+      (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
+    (let [processed-agg (process-value-expression this (s/conform ::value-expression agg-expression))
+          id (keyword (gensym "column-"))]
+      (-> this
+        (assoc-in [:columns id] {:type :aggregate :value-expression [:function-call {:fn agg-fn :args [processed-agg]}]})
+        (assoc-in [:column-aliases col-name] id)
+        (update :projection conj col-name))))
+  (select [this projection]
+    (s/assert ::column-list projection)
+    (let [processed-projection (process-projection this (s/conform ::column-list projection))]
+      (assoc this :projection processed-projection)))
+  (only [this]
+    (only this true))
+  (only [this is-only]
+    (assoc this :only is-only))
+  (distinct [this]
+    (distinct this true))
+  (distinct [this distinct-expression]
+    (s/assert ::value-expression distinct-expression)
+    (cond
+      (boolean? distinct-expression)
+      (assoc this :distinct distinct-expression)
+      :else
+      (let [processed-distinct (resolve-columns this (s/conform ::column-list distinct-expression))]
+        (assoc this :distinct processed-distinct))))
+  (order-by [this orders]
+    (s/assert ::orders orders)
+    (let [processed-orders (process-orders this (s/conform ::orders orders))]
+      (assoc this :order-by processed-orders)))
+  (offset [this offset]
+    (assoc this :offset offset))
+  (limit [this limit]
+    (assoc this :limit limit)))
 
 (defn with-columns [rel spec]
   (let [columns (:columns spec)]
