@@ -140,12 +140,26 @@
                                     :fk_origin_name nil,
                                     :fk nil})
         rel      (-> products
-                   (rel2/extend-with-aggregate :count-products :count 1)
-                   (rel2/select [:id :count-products])
+                   ;;(rel2/where [:= :id 1])
+                   ;;(rel2/extend-with-aggregate :count-products :count 1)
+                   ;;(rel2/select [:id :count-products])
                    ;;(rel2/only)
                    ;;(rel2/distinct [:name (rel2/column :id)])
                    ;;(rel2/distinct false)
-                   (rel2/join :left orders :orders [:= :id :orders/product-id])
+                   (rel2/join
+                     :left
+                     (rel2/join orders :left
+                       (-> users
+                         (rel2/extend :upper-name [:upper :name])
+                         (rel2/extend-with-aggregate :count :count 1)
+                         (rel2/extend :lower-name [:lower :upper-name])
+                         (rel2/rename :lower-name :ln)
+                         (rel2/having [:< :count 1]))
+                       :users [:= :user-id :users/id])
+                     :orders
+                     [:= :id :orders/product-id])
+                   (rel2/where [:= :orders.users/ln "A TEST USER"])
+
                    ;;(rel2/rename :name :product-name)
                    ;;(rel2/extend :upper-product-name [:upper :product-name])
                    ;;(rel2/rename :upper-product-name :upn)
@@ -157,7 +171,8 @@
                    ;;(rel2/limit 2)
                    )]
     ;;   (println (jdbc/execute! db-uri [(rel/to-sql rel)]))
-    (clojure.pprint/pprint rel)
+    ;;(clojure.pprint/pprint rel)
+    ;;(println (prettify-sql (first (sel/format-query {} (rel2/join orders :left users :users [:= :user-id :users/id]) {:product-name "PRODUCT 1" :product-id 1}))))
     (println (prettify-sql (first (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))))
     (println (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))
     ;;(println (jdbc/execute! db-uri (sel/format-query {} rel {})))

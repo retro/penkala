@@ -133,10 +133,10 @@
     (if (seq column-join-path)
       (let [column-join-path' (map keyword column-join-path)
             column-rel (get-in rel (expand-join-path column-join-path'))
-            id (get-in column-rel [:column-aliases (keyword column-name)])]
+            id (get-in column-rel [:aliases->ids (keyword column-name)])]
         (when id
           {:path column-join-path' :id id :name column-name :original column}))
-      (when-let [id (get-in rel [:column-aliases (keyword column-name)])]
+      (when-let [id (get-in rel [:aliases->ids (keyword column-name)])]
         {:id id :name column-name :original column}))))
 
 (defn process-value-expression [rel vex]
@@ -206,8 +206,8 @@
   (join [this join-type join-rel join-alias] [this join-type join-rel join-alias join-on])
   (where [this where-expression])
   (or-where [this where-expression])
-  ;;(having [this vex])
-  ;;(or-having [this vex])
+  (having [this having-expression])
+  (or-having [this having-expression])
   (offset [this offset])
   (limit [this limit])
   (order-by [this orders])
@@ -217,6 +217,21 @@
   (select [this projection])
   (distinct [this] [this distinct-expression])
   (only [this] [this is-only]))
+
+(defn and-predicate [rel predicate-type predicate-expression]
+  (s/assert ::value-expression predicate-expression)
+  (let [prev-predicate      (get rel predicate-type)
+        processed-predicate (process-value-expression rel (s/conform ::value-expression predicate-expression))]
+    (if prev-predicate
+      (assoc rel predicate-type [:connective {:op :and :args [prev-predicate processed-predicate]}])
+      (assoc rel predicate-type processed-predicate))))
+
+(defn or-predicate [rel predicate-type predicate-expression]
+  (s/assert ::value-expression predicate-expression)
+  (if-let [prev-predicate (get rel predicate-type)]
+    (let [processed-predicate (process-value-expression rel (s/conform ::value-expression predicate-expression))]
+      (assoc rel predicate-type [:connective {:op :or :args [prev-predicate processed-predicate]}]))
+    (and-predicate rel predicate-type predicate-expression)))
 
 (defrecord Relation [spec]
   IRelation
@@ -228,43 +243,44 @@
           join-on' (process-value-expression with-join (s/conform ::value-expression join-on))]
       (assoc-in with-join [:joins join-alias :on] join-on')))
   (where [this where-expression]
-    (s/assert ::value-expression where-expression)
-    (let [prev-where      (:where this)
-          processed-where (process-value-expression this (s/conform ::value-expression where-expression))]
-      (if prev-where
-        (assoc this :where [:connective {:op :and :args [prev-where processed-where]}])
-        (assoc this :where processed-where))))
+    (and-predicate this :where where-expression))
   (or-where [this where-expression]
-    (if-let [prev-where (:where this)]
-      (let [processed-where (process-value-expression this (s/conform ::value-expression where-expression))]
-        (assoc this :where [:connective {:op :or :args [prev-where processed-where]}]))
-      (where this where-expression)))
+    (or-predicate this :where where-expression))
+  (having [this having-expression]
+    (and-predicate this :having having-expression))
+  (or-having [this having-expression]
+    (or-predicate this :having having-expression))
   (rename [this prev-col-name next-col-name]
-    (let [id (get-in this [:column-aliases prev-col-name])]
+    (let [id (get-in this [:aliases->ids prev-col-name])]
       (when (nil? id)
         (throw (ex-info-missing-column this prev-col-name)))
-      (cond-> (update this :column-aliases #(-> % (dissoc prev-col-name) (assoc next-col-name id)))
-        (contains? (:projection this) prev-col-name)
-        (update :projection #(-> % (disj prev-col-name) (conj next-col-name))))))
+      (let [this' (-> this
+                    (assoc-in [:ids->aliases id] next-col-name)
+                    (update :aliases->ids #(-> % (dissoc prev-col-name) (assoc next-col-name id))))]
+        (if (contains? (:projection this') prev-col-name)
+          (update this' :projection #(-> % (disj prev-col-name) (conj next-col-name)))
+          this'))))
   (extend [this col-name extend-expression]
     (s/assert ::value-expression extend-expression)
-    (when (contains? (:column-aliases this) col-name)
+    (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
     (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-expression))
           id (keyword (gensym "column-"))]
       (-> this
         (assoc-in [:columns id] {:type :virtual :value-expression processed-extend})
-        (assoc-in [:column-aliases col-name] id)
+        (assoc-in [:ids->aliases id] col-name)
+        (assoc-in [:aliases->ids col-name] id)
         (update :projection conj col-name))))
   (extend-with-aggregate [this col-name agg-fn agg-expression]
     (s/assert ::value-expression agg-expression)
-    (when (contains? (:column-aliases this) col-name)
+    (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
     (let [processed-agg (process-value-expression this (s/conform ::value-expression agg-expression))
           id (keyword (gensym "column-"))]
       (-> this
         (assoc-in [:columns id] {:type :aggregate :value-expression [:function-call {:fn agg-fn :args [processed-agg]}]})
-        (assoc-in [:column-aliases col-name] id)
+        (assoc-in [:ids->aliases id] col-name)
+        (assoc-in [:aliases->ids col-name] id)
         (update :projection conj col-name))))
   (select [this projection]
     (s/assert ::column-list projection)
@@ -297,15 +313,17 @@
   (let [columns (:columns spec)]
     (reduce
       (fn [acc col]
-        (let [id (keyword (gensym "column-"))]
+        (let [id (keyword (gensym "column-"))
+              alias (->kebab-case-keyword col)]
           (-> acc
             (assoc-in [:columns id] {:type :concrete :name col})
-            (assoc-in [:column-aliases (->kebab-case-keyword col)] id))))
+            (assoc-in [:ids->aliases id] alias)
+            (assoc-in [:aliases->ids alias] id))))
       rel
       columns)))
 
 (defn with-default-projection [rel]
-  (assoc rel :projection (set (keys (:column-aliases rel)))))
+  (assoc rel :projection (set (keys (:aliases->ids rel)))))
 
 (defn spec->relation [spec]
   (-> (->Relation (assoc spec :namespace (->kebab-case-string (:name spec))))

@@ -3,12 +3,16 @@
             [clojure.string :as str]
             [com.verybigthings.penkala.util.core :refer [q expand-join-path path-prefix-join join-separator]]))
 
-(defn get-resolved-column-prefix [env rel col]
-  (let [col-path (concat (:join/path-prefix env) (:path col))
-        rel-name (get-in rel [:spec :name])]
-    (if (seq col-path)
-      (q (path-prefix-join (map name col-path)))
-      (q rel-name))))
+(defn get-resolved-column-identifier [env rel resolved-col col-def]
+  (let [col-id (:id resolved-col)
+        col-rel-path (vec (concat (:join/path-prefix env) (:path resolved-col)))]
+    (if (seq col-rel-path)
+      (let [col-rel (get-in rel (expand-join-path col-rel-path))
+            col-alias (get-in col-rel [:ids->aliases col-id])
+            full-path (map name (conj col-rel-path col-alias))
+            [rel-name & col-parts] full-path]
+        (str (q rel-name) "." (q (path-prefix-join col-parts))))
+      (str (q (get-in rel [:spec :name])) "." (q (:name col-def))))))
 
 (defmulti compile-function-call (fn [acc env rel function-name args] function-name))
 (defmulti compile-value-expression (fn [acc env rel [vex-type & _]] vex-type))
@@ -28,7 +32,7 @@
 (defmethod compile-value-expression :default [acc env rel [vex-type & args]]
   (throw
     (ex-info
-      (str "com.verybigthins.penkala.statement.value-expression/compile-vex multimethod not implemented for " vex-type)
+      (str "com.verybigthings.penkala.statement.value-expression/compile-vex multimethod not implemented for " vex-type)
       {:type vex-type
        :args args})))
 
@@ -36,19 +40,24 @@
   (compile-function-call acc env rel fn args))
 
 (defmethod compile-value-expression :resolved-column [acc env rel [_ col]]
-  (let [col-path (:path col)
+  (let [col-path (concat (:join/path-prefix env) (:path col))
         col-rel (if (seq col-path) (get-in rel (expand-join-path col-path)) rel)
         col-def (get-in col-rel [:columns (:id col)])]
     (case (:type col-def)
       :concrete
-      (update acc :query conj (str (get-resolved-column-prefix env rel col) "." (q (:name col-def))))
+      (update acc :query conj (get-resolved-column-identifier env rel col col-def))
       (:virtual :aggregate)
-      (compile-value-expression acc env rel (:value-expression col-def)))))
+      (compile-value-expression acc (if (seq col-path) (assoc env :join/path-prefix col-path) env) rel (:value-expression col-def)))))
 
 (defmethod compile-value-expression :value [acc _ _ [_ val]]
   (-> acc
     (update :query conj "?")
     (update :params conj val)))
+
+(defmethod compile-value-expression :keyword [acc _ _ [_ val]]
+  (-> acc
+    (update :query conj "?")
+    (update :params conj (name val))))
 
 (defmethod compile-value-expression :binary-operation [{:keys [query params]} env rel [_ {:keys [op arg1 arg2]}]]
   (let [sql-op (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
