@@ -46,7 +46,7 @@
                             (or (seq path-prefix) (= col-type :concrete))
                             (update acc :query conj (str (q rel-alias) "." (q col-name) " AS " (q col-alias)))
 
-                            (and (not (seq path-prefix)) (contains? #{:virtual :aggregate} col-type))
+                            (and (not (seq path-prefix)) (contains? #{:computed :aggregate} col-type))
                             (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
                               (-> acc
                                 (update :params into params)
@@ -60,11 +60,18 @@
        (get-in rel [:joins])))))
 
 (defn with-from [acc env rel]
-  (let [rel-name (get-in rel [:spec :name])]
-    (update acc :query into [(if (:only rel) "FROM ONLY" "FROM")
-                             (schema-qualified-relation-name env rel)
-                             "AS"
-                             (q rel-name)])))
+  (if-let [rel-query (get-in rel [:spec :query])]
+    (let [[query & params] (if (fn? rel-query) (rel-query env) rel-query)
+          rel-name (get-in rel [:spec :name])]
+      (-> acc
+        (update :params into params)
+        (update :query into ["FROM" (str "(" query ")") "AS" (q rel-name)])))
+
+    (let [rel-name (get-in rel [:spec :name])]
+      (update acc :query into [(if (:only rel) "FROM ONLY" "FROM")
+                               (schema-qualified-relation-name env rel)
+                               "AS"
+                               (q rel-name)]))))
 
 (defn with-joins
   ([acc env rel] (with-joins acc env rel []))
@@ -75,7 +82,7 @@
              join-alias    (->> (conj path-prefix alias) (map name) path-prefix-join)
              join-relation (:relation j)
              [join-query & join-params] (format-query-without-params-resolution env join-relation)
-             join-clause   [join-sql-type "JOIN (" join-query ")" (q join-alias) "ON"]
+             join-clause   [join-sql-type "JOIN" (str "(" join-query ")") (q join-alias) "ON"]
              {:keys [query params]} (compile-value-expression {:query join-clause :params (vec join-params)} (assoc env :join/path-prefix path-prefix) rel (:on j))]
          (-> acc'
            (update :params into params)
@@ -131,7 +138,7 @@
                             (or (seq path-prefix) (= col-type :concrete))
                             (update acc :query conj (str (q rel-alias) "." (q col-name)))
 
-                            (and (not (seq path-prefix)) (= :virtual col-type))
+                            (and (not (seq path-prefix)) (= :computed col-type))
                             (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
                               (-> acc
                                 (update :params into params)
@@ -175,7 +182,6 @@
   (if-let [offset (:offset rel)]
     (update acc :query conj (str "OFFSET " offset))
     acc))
-
 
 (defn format-query-without-params-resolution [env rel]
   (let [{:keys [query params]} (-> {:query ["SELECT"] :params []}

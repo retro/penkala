@@ -4,7 +4,9 @@
             [camel-snake-kebab.core :refer [->kebab-case-keyword ->kebab-case-string]]
             [clojure.string :as str]
             [clojure.walk :refer [prewalk]]
-            [com.verybigthings.penkala.util.core :refer [expand-join-path]]))
+            [com.verybigthings.penkala.util.core :refer [expand-join-path path-prefix-join]]
+            [com.verybigthings.penkala.statement.select2 :as sel]
+            [clojure.set :as set]))
 
 (defn ex-info-missing-column [rel node]
   (let [column-name (if (keyword? node) node (:subject node))]
@@ -216,7 +218,8 @@
   (rename [this prev-col-name next-col-name])
   (select [this projection])
   (distinct [this] [this distinct-expression])
-  (only [this] [this is-only]))
+  (only [this] [this is-only])
+  (get-select-query [this env] [this env params]))
 
 (defn and-predicate [rel predicate-type predicate-expression]
   (s/assert ::value-expression predicate-expression)
@@ -267,7 +270,7 @@
     (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-expression))
           id (keyword (gensym "column-"))]
       (-> this
-        (assoc-in [:columns id] {:type :virtual :value-expression processed-extend})
+        (assoc-in [:columns id] {:type :computed :value-expression processed-extend})
         (assoc-in [:ids->aliases id] col-name)
         (assoc-in [:aliases->ids col-name] id)
         (update :projection conj col-name))))
@@ -307,10 +310,14 @@
   (offset [this offset]
     (assoc this :offset offset))
   (limit [this limit]
-    (assoc this :limit limit)))
+    (assoc this :limit limit))
+  (get-select-query [this env]
+    (sel/format-query-without-params-resolution env this))
+  (get-select-query [this env params]
+    (sel/format-query env this params)))
 
-(defn with-columns [rel spec]
-  (let [columns (:columns spec)]
+(defn with-columns [rel]
+  (let [columns (get-in rel [:spec :columns])]
     (reduce
       (fn [acc col]
         (let [id (keyword (gensym "column-"))
@@ -327,5 +334,46 @@
 
 (defn spec->relation [spec]
   (-> (->Relation (assoc spec :namespace (->kebab-case-string (:name spec))))
-    (with-columns spec)
+    (with-columns)
     (with-default-projection)))
+
+(defn get-projected-columns
+  ([rel] (get-projected-columns #{} rel []))
+  ([acc rel path-prefix]
+   (let [acc'
+         (reduce
+           (fn [acc col]
+             (conj acc (path-prefix-join (map name (conj path-prefix col)))))
+           acc
+           (:projection rel))]
+     (reduce-kv
+       (fn [acc join-alias join]
+         (get-projected-columns acc (:relation join) (conj path-prefix join-alias)))
+       acc'
+       (:joins rel)))))
+
+(defn make-combined-relations-spec [operator rel1 rel2]
+  (let [rel1-cols (get-projected-columns rel1)
+        rel2-cols (get-projected-columns rel2)]
+    (when (not= rel1-cols rel2-cols)
+      (throw (ex-info (str operator " requires projected columns to match.") {:left-relation rel1 :right-relation rel2})))
+    (let [rel-name (str (gensym "rel_"))
+          query (fn [env]
+                  (let [[query1 & params1] (get-select-query rel1 env)
+                        [query2 & params2] (get-select-query rel2 env)]
+                    (vec (concat [(str query1 " " operator " " query2)] params1 params2))))]
+      {:name rel-name
+       :columns rel1-cols
+       :query query})))
+
+(defn union [rel1 rel2]
+  (spec->relation (make-combined-relations-spec "UNION" rel1 rel2)))
+
+(defn union-all [rel1 rel2]
+  (spec->relation (make-combined-relations-spec "UNION ALL" rel1 rel2)))
+
+(defn intersect [rel1 rel2]
+  (spec->relation (make-combined-relations-spec "INTERSECT" rel1 rel2)))
+
+(defn except [rel1 rel2]
+  (spec->relation (make-combined-relations-spec "EXCEPT" rel1 rel2)))

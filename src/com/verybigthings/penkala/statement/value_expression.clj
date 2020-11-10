@@ -46,7 +46,7 @@
     (case (:type col-def)
       :concrete
       (update acc :query conj (get-resolved-column-identifier env rel col col-def))
-      (:virtual :aggregate)
+      (:computed :aggregate)
       (compile-value-expression acc (if (seq col-path) (assoc env :join/path-prefix col-path) env) rel (:value-expression col-def)))))
 
 (defmethod compile-value-expression :value [acc _ _ [_ val]]
