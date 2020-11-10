@@ -147,7 +147,7 @@
                                            :query ["SELECT foo, qux FROM (VALUES ('foo1', 'qux1'), ('foo2', 'qux2')) AS q (foo, qux)"]})
         rel      (-> products
                    ;;(rel2/where [:= :id 1])
-                   ;;(rel2/extend-with-aggregate :count-products :count 1)
+                   (rel2/extend-with-aggregate :count-products :count 1)
                    ;;(rel2/select [:id :count-products])
                    ;;(rel2/only)
                    ;;(rel2/distinct [:name (rel2/column :id)])
@@ -164,7 +164,11 @@
                        :users [:= :user-id :users/id])
                      :orders
                      [:= :id :orders/product-id])
-                   (rel2/where [:= :orders.users/ln "A TEST USER"])
+                   (rel2/select [:id])
+                   (rel2/where [:in :id (-> products
+                                          (rel2/select [:id])
+                                          (rel2/where [:= :id 1]))])
+                   ;;(rel2/where [:= :orders.users/ln "A TEST USER"])
 
                    ;;(rel2/rename :name :product-name)
                    ;;(rel2/extend :upper-product-name [:upper :product-name])
@@ -178,18 +182,23 @@
                    )
         p1 (-> products
              (rel2/select [:id :name])
-             (rel2/join :left orders :orders [:= :id :orders/product-id])
+             (rel2/join :left (rel2/select orders [:id :product-id]) :orders [:= :id :orders/product-id])
              (rel2/where [:or [:= :id 1] [:= :id 2]]))
         p2 (-> products
              (rel2/select [:id :name])
-             (rel2/join :left orders :orders [:= :id :orders/product-id])
-             (rel2/where [:or [:= :id 2] [:= :id 3]]))]
+             (rel2/join :left (rel2/select orders [:id :product-id]) :orders [:= :id :orders/product-id])
+             (rel2/where [:or [:= :id 2] [:= :id 3]]))
+        p1-p2 (rel2/intersect p1 p2)
+        pp (-> products
+             (rel2/join :left p1-p2 :pp [:= :id :pp/id]))]
     ;;   (println (jdbc/execute! db-uri [(rel/to-sql rel)]))
     ;;(clojure.pprint/pprint rel)
     ;;(println (prettify-sql (first (sel/format-query {} (rel2/join orders :left users :users [:= :user-id :users/id]) {:product-name "PRODUCT 1" :product-id 1}))))
-    ;;(println (prettify-sql (first (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))))
     ;;(println (sel/format-query {} (rel2/join computed-rel :inner computed-rel2 :c2 [:= :foo :c2/foo]) {}))
-    (println (-> (rel2/get-select-query (rel2/union p1 p2) {}) first prettify-sql))
+    (println (prettify-sql (first (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))))
+    (println (first (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1})))
+    (println (-> (rel2/get-select-query pp {}) first        ;;prettify-sql
+               ))
     ;;(println (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))
     ;;(println (jdbc/execute! db-uri (sel/format-query {} rel {})))
     (is false)))

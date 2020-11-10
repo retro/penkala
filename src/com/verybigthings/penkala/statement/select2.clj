@@ -1,17 +1,143 @@
 (ns com.verybigthings.penkala.statement.select2
-  (:require [com.verybigthings.penkala.statement.value-expression :refer [compile-value-expression]]
-            [clojure.string :as str]
-            [com.verybigthings.penkala.util.core :refer [q path-prefix-join join-separator]]
+  (:require [clojure.string :as str]
+            [com.verybigthings.penkala.util.core :refer [q expand-join-path path-prefix-join join-separator vec-conj]]
             [camel-snake-kebab.core :refer [->SCREAMING_SNAKE_CASE_STRING]]))
 
 (declare format-query-without-params-resolution)
 
 (def empty-acc {:query [] :params []})
 
+(defn make-rel-alias-prefix [env]
+  (str (gensym "sq_")))
+
+(defn rel-alias-with-prefix [env rel-alias]
+  (if-let [rel-alias-prefix (-> env ::relation-alias-prefix last)]
+    (str rel-alias-prefix "__" rel-alias)
+    rel-alias))
+
 (defn schema-qualified-relation-name [env rel]
   (let [rel-name   (get-in rel [:spec :name])
         rel-schema (get-in rel [:spec :schema])]
     (str (q rel-schema) "." (q rel-name))))
+
+(defn get-resolved-column-identifier [env rel resolved-col col-def]
+  (let [col-id (:id resolved-col)
+        col-rel-path (vec (concat (::join-path-prefix env) (:path resolved-col)))]
+    (if (seq col-rel-path)
+      (let [col-rel (get-in rel (expand-join-path col-rel-path))
+            col-alias (get-in col-rel [:ids->aliases col-id])
+            full-path (map name (conj col-rel-path col-alias))
+            [rel-name & col-parts] full-path]
+        (str (q (rel-alias-with-prefix env rel-name)) "." (q (path-prefix-join col-parts))))
+      (str (q (rel-alias-with-prefix env (get-in rel [:spec :name]))) "." (q (:name col-def))))))
+
+(defmulti compile-function-call (fn [acc env rel function-name args] function-name))
+(defmulti compile-value-expression (fn [acc env rel [vex-type & _]] vex-type))
+
+(defmethod compile-function-call :default [acc env rel function-name args]
+  (let [sql-function-name (->SCREAMING_SNAKE_CASE_STRING function-name)
+        {:keys [query params]} (reduce
+                                 (fn [acc arg]
+                                   (compile-value-expression acc env rel arg))
+                                 {:query [] :params []}
+                                 args)]
+    (-> acc
+      (update :query conj (str sql-function-name "(" (str/join " " query) ")"))
+      (update :params into params))))
+
+(defmethod compile-value-expression :default [acc env rel [vex-type & args]]
+  (throw
+    (ex-info
+      (str "com.verybigthings.penkala.statement.value-expression/compile-value-expression multimethod not implemented for " vex-type)
+      {:type vex-type
+       :args args})))
+
+(defmethod compile-value-expression :function-call [acc env rel [_ {:keys [fn args]}]]
+  (compile-function-call acc env rel fn args))
+
+(defmethod compile-value-expression :resolved-column [acc env rel [_ col]]
+  (let [col-path (concat (::join-path-prefix env) (:path col))
+        col-rel (if (seq col-path) (get-in rel (expand-join-path col-path)) rel)
+        col-def (get-in col-rel [:columns (:id col)])]
+    (case (:type col-def)
+      :concrete
+      (update acc :query conj (get-resolved-column-identifier env rel col col-def))
+      (:computed :aggregate)
+      (compile-value-expression acc (if (seq col-path) (assoc env ::join-path-prefix col-path) env) rel (:value-expression col-def)))))
+
+(defmethod compile-value-expression :value [acc _ _ [_ val]]
+  (-> acc
+    (update :query conj "?")
+    (update :params conj val)))
+
+(defmethod compile-value-expression :keyword [acc _ _ [_ val]]
+  (-> acc
+    (update :query conj "?")
+    (update :params conj (name val))))
+
+(defmethod compile-value-expression :unary-operation [{:keys [query params]} env rel [_ {:keys [op arg1]}]]
+  (let [sql-op (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
+        arg1-acc (compile-value-expression {:query [] :params []} env rel arg1)]
+    {:query (-> query (into (:query arg1-acc)) (conj sql-op))
+     :params (-> params (into (:params arg1-acc)))}))
+
+(defmethod compile-value-expression :binary-operation [{:keys [query params]} env rel [_ {:keys [op arg1 arg2]}]]
+  (let [sql-op (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
+        arg1-acc (compile-value-expression {:query [] :params []} env rel arg1)
+        arg2-acc (compile-value-expression  {:query [] :params []} env rel arg2)]
+    {:query (-> query (into (:query arg1-acc)) (conj sql-op) (into (:query arg2-acc)))
+     :params (-> params (into (:params arg1-acc)) (into (:params arg2-acc)))}))
+
+(defmethod compile-value-expression :ternary-operation [{:keys [query params]} env rel [_ {:keys [op arg1 arg2 arg3]}]]
+  (let [sql-op (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
+        arg1-acc (compile-value-expression {:query [] :params []} env rel arg1)
+        arg2-acc (compile-value-expression  {:query [] :params []} env rel arg2)
+        arg3-acc (compile-value-expression  {:query [] :params []} env rel arg3)]
+    {:query (-> query (into (:query arg1-acc)) (conj sql-op) (into (:query arg2-acc)) (conj "AND") (into (:query arg3-acc)))
+     :params (-> params (into (:params arg1-acc)) (into (:params arg2-acc)) (into (:params arg3-acc)))}))
+
+(defmethod compile-value-expression :boolean [acc _ _ [_ value]]
+  (update acc :query conj (if value "TRUE" "FALSE")))
+
+(defmethod compile-value-expression :negation [acc env rel [_ {:keys [_ arg1]}]]
+  (let [arg1-acc (compile-value-expression {:query [] :params []} env rel arg1)]
+    (-> acc
+      (update :query conj (str "NOT(" (str/join " " (:query arg1-acc)) ")"))
+      (update :params into (:params arg1-acc)))))
+
+(defmethod compile-value-expression :connective [acc env rel [_ {:keys [op args]}]]
+  (if (= 1 (count args))
+    (compile-value-expression acc env rel (first args))
+    (let [sql-op (->SCREAMING_SNAKE_CASE_STRING op)
+          {:keys [query params]} (reduce
+                                   (fn [acc arg]
+                                     (-> acc
+                                       (compile-value-expression env rel arg)
+                                       (update :query conj sql-op)))
+                                   {:query [] :params []}
+                                   args)]
+      (-> acc
+        (update :params into params)
+        (update :query conj (str "(" (str/join " " (butlast query)) ")"))))))
+
+(defmethod compile-value-expression :param [acc env rel [_ param-name]]
+  (let [param-getter (fn [param-values]
+                       (when (not (contains? param-values param-name))
+                         (throw (ex-info (str "Missing param " param-name) {:relation rel :param param-name})))
+                       (get param-values param-name))]
+    (-> acc
+      (update :query conj "?")
+      (update :params conj param-getter))))
+
+(defmethod compile-value-expression :relation [acc env rel [_ inner-rel]]
+  (let [rel-alias-prefix (make-rel-alias-prefix env)
+        env'             (-> env
+                           (dissoc ::join-path-prefix)
+                           (update ::relation-alias-prefix vec-conj rel-alias-prefix))
+        [query & params] (format-query-without-params-resolution env' inner-rel)]
+    (-> acc
+      (update :query conj (str "(" query ")"))
+      (update :params into params))))
 
 (defn with-distinct [acc env rel]
   (if-let [dist (:distinct rel)]
@@ -44,7 +170,7 @@
                           (cond
 
                             (or (seq path-prefix) (= col-type :concrete))
-                            (update acc :query conj (str (q rel-alias) "." (q col-name) " AS " (q col-alias)))
+                            (update acc :query conj (str  (q (rel-alias-with-prefix env rel-alias)) "." (q col-name) " AS " (q col-alias)))
 
                             (and (not (seq path-prefix)) (contains? #{:computed :aggregate} col-type))
                             (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
@@ -61,17 +187,20 @@
 
 (defn with-from [acc env rel]
   (if-let [rel-query (get-in rel [:spec :query])]
-    (let [[query & params] (if (fn? rel-query) (rel-query env) rel-query)
+    (let [rel-alias-prefix (make-rel-alias-prefix env)
+          subquery-env (-> env
+                         (update ::relation-alias-prefix vec-conj rel-alias-prefix))
+          [query & params] (if (fn? rel-query) (rel-query subquery-env) rel-query)
           rel-name (get-in rel [:spec :name])]
       (-> acc
         (update :params into params)
-        (update :query into ["FROM" (str "(" query ")") "AS" (q rel-name)])))
+        (update :query into ["FROM" (str "(" query ")") "AS" (q (rel-alias-with-prefix env rel-name))])))
 
     (let [rel-name (get-in rel [:spec :name])]
       (update acc :query into [(if (:only rel) "FROM ONLY" "FROM")
                                (schema-qualified-relation-name env rel)
                                "AS"
-                               (q rel-name)]))))
+                               (q (rel-alias-with-prefix env rel-name))]))))
 
 (defn with-joins
   ([acc env rel] (with-joins acc env rel []))
@@ -82,8 +211,8 @@
              join-alias    (->> (conj path-prefix alias) (map name) path-prefix-join)
              join-relation (:relation j)
              [join-query & join-params] (format-query-without-params-resolution env join-relation)
-             join-clause   [join-sql-type "JOIN" (str "(" join-query ")") (q join-alias) "ON"]
-             {:keys [query params]} (compile-value-expression {:query join-clause :params (vec join-params)} (assoc env :join/path-prefix path-prefix) rel (:on j))]
+             join-clause   [join-sql-type "JOIN" (str "(" join-query ")") (q (rel-alias-with-prefix env join-alias)) "ON"]
+             {:keys [query params]} (compile-value-expression {:query join-clause :params (vec join-params)} (assoc env ::join-path-prefix path-prefix) rel (:on j))]
          (-> acc'
            (update :params into params)
            (update :query into query))))
@@ -136,7 +265,7 @@
                           (cond
 
                             (or (seq path-prefix) (= col-type :concrete))
-                            (update acc :query conj (str (q rel-alias) "." (q col-name)))
+                            (update acc :query conj (str (q (rel-alias-with-prefix env rel-alias)) "." (q col-name)))
 
                             (and (not (seq path-prefix)) (= :computed col-type))
                             (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]

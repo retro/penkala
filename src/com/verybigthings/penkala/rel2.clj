@@ -4,13 +4,26 @@
             [camel-snake-kebab.core :refer [->kebab-case-keyword ->kebab-case-string]]
             [clojure.string :as str]
             [clojure.walk :refer [prewalk]]
-            [com.verybigthings.penkala.util.core :refer [expand-join-path path-prefix-join]]
+            [com.verybigthings.penkala.util.core :refer [expand-join-path path-prefix-join path-prefix-split]]
             [com.verybigthings.penkala.statement.select2 :as sel]
             [clojure.set :as set]))
 
-(defn ex-info-missing-column [rel node]
-  (let [column-name (if (keyword? node) node (:subject node))]
-    (ex-info (str "Column " column-name " doesn't exist") {:column column-name :rel rel})))
+(defprotocol IRelation
+  (join [this join-type join-rel join-alias] [this join-type join-rel join-alias join-on])
+  (where [this where-expression])
+  (or-where [this where-expression])
+  (having [this having-expression])
+  (or-having [this having-expression])
+  (offset [this offset])
+  (limit [this limit])
+  (order-by [this orders])
+  (extend [this col-name extend-expression])
+  (extend-with-aggregate [this col-name agg-fn agg-expression])
+  (rename [this prev-col-name next-col-name])
+  (select [this projection])
+  (distinct [this] [this distinct-expression])
+  (only [this] [this is-only])
+  (get-select-query [this env] [this env params]))
 
 (defrecord Wrapped [subject-type subject])
 
@@ -23,9 +36,13 @@
 (defn param [subject]
   (->Wrapped :param subject))
 
+(defn ex-info-missing-column [rel node]
+  (let [column-name (if (keyword? node) node (:subject node))]
+    (ex-info (str "Column " column-name " doesn't exist") {:column column-name :rel rel})))
+
 (def operations
   {:unary #{:is-null :is-not-null :is-true :is-not-true :is-false :is-not-false :is-unknown :is-not-unknown}
-   :binary #{:< :> :<= :>= := :<> :!=}
+   :binary #{:< :> :<= :>= := :<> :!= :in}
    :ternary #{:between :not-between :between-symmetric :not-between-symmetric :is-distinct-from :is-not-distinct-from}})
 
 (s/def ::connective
@@ -73,6 +90,9 @@
       :fn keyword?
       :args (s/+ ::value-expression))))
 
+(s/def ::relation
+  #(satisfies? IRelation %))
+
 (s/def ::wrapped-column
   #(and (= Wrapped (type %)) (= :column (:subject-type %))))
 
@@ -113,6 +133,7 @@
   (s/or
     :boolean boolean?
     :keyword keyword?
+    :relation ::relation
     :connective ::connective
     :negation ::negation
     :unary-operation ::unary-operation
@@ -203,23 +224,6 @@
           (conj acc [:resolved-column column]))))
     []
     columns))
-
-(defprotocol IRelation
-  (join [this join-type join-rel join-alias] [this join-type join-rel join-alias join-on])
-  (where [this where-expression])
-  (or-where [this where-expression])
-  (having [this having-expression])
-  (or-having [this having-expression])
-  (offset [this offset])
-  (limit [this limit])
-  (order-by [this orders])
-  (extend [this col-name extend-expression])
-  (extend-with-aggregate [this col-name agg-fn agg-expression])
-  (rename [this prev-col-name next-col-name])
-  (select [this projection])
-  (distinct [this] [this distinct-expression])
-  (only [this] [this is-only])
-  (get-select-query [this env] [this env params]))
 
 (defn and-predicate [rel predicate-type predicate-expression]
   (s/assert ::value-expression predicate-expression)
@@ -321,7 +325,11 @@
     (reduce
       (fn [acc col]
         (let [id (keyword (gensym "column-"))
-              alias (->kebab-case-keyword col)]
+              alias (->> col
+                      path-prefix-split
+                      (map ->kebab-case-string)
+                      path-prefix-join
+                      keyword)]
           (-> acc
             (assoc-in [:columns id] {:type :concrete :name col})
             (assoc-in [:ids->aliases id] alias)

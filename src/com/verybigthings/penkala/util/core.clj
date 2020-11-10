@@ -2,9 +2,13 @@
   (:require [clojure.string :as str]))
 
 (def join-separator "__")
+(def join-separator-re #"__")
 
 (defn path-prefix-join [path]
   (str/join join-separator path))
+
+(defn path-prefix-split [str]
+  (str/split str join-separator-re))
 
 (defn str-quote [s]
   (str "\"" (if (keyword? s) (name s) s) "\""))
@@ -23,3 +27,5 @@
 
 (defn expand-join-path [path]
   (mapcat (fn [v] [:joins (keyword v) :relation]) path))
+
+(def vec-conj (fnil conj []))

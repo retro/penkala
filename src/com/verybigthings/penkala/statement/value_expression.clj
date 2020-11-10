@@ -28,11 +28,10 @@
       (update :query conj (str sql-function-name "(" (str/join " " query) ")"))
       (update :params into params))))
 
-
 (defmethod compile-value-expression :default [acc env rel [vex-type & args]]
   (throw
     (ex-info
-      (str "com.verybigthings.penkala.statement.value-expression/compile-vex multimethod not implemented for " vex-type)
+      (str "com.verybigthings.penkala.statement.value-expression/compile-value-expression multimethod not implemented for " vex-type)
       {:type vex-type
        :args args})))
 
