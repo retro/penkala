@@ -8,6 +8,9 @@
             [com.verybigthings.penkala.statement.select2 :as sel]
             [clojure.set :as set]))
 
+;; TODO: Explicit group-by?
+;; TODO: fragment
+
 (defprotocol IRelation
   (join [this join-type join-rel join-alias] [this join-type join-rel join-alias join-on])
   (where [this where-expression])
@@ -44,6 +47,10 @@
 
 (defn literal [subject]
   (->Wrapped :literal subject))
+
+(defn quoted-literal [subject]
+  (let [subject' (if (keyword? subject) (name subject) subject)]
+    (->Wrapped :literal (str "'" subject' "'"))))
 
 (defn ex-info-missing-column [rel node]
   (let [column-name (if (keyword? node) node (:subject node))]
@@ -109,6 +116,22 @@
       :op #(= :parent-scope %)
       :args (s/+ ::value-expression))))
 
+(s/def ::fragment-literal
+  (s/and
+    vector?
+    (s/cat
+      :op #(= :fragment %)
+      :fragment-literal string?
+      :args (s/+ ::value-expression))))
+
+(s/def ::fragment-fn
+  (s/and
+    vector?
+    (s/cat
+      :op #(= :fragment %)
+      :fragment-fn fn?
+      :args (s/+ ::value-expression))))
+
 (s/def ::relation
   #(satisfies? IRelation %))
 
@@ -162,6 +185,8 @@
     :binary-operation ::binary-operation
     :ternary-operation ::ternary-operation
     :parent-scope ::parent-scope
+    :fragment-fn ::fragment-fn
+    :fragment-literal ::fragment-literal
     :function-call ::function-call
     :wrapped-literal ::wrapped-literal
     :wrapped-column ::wrapped-column
@@ -210,7 +235,7 @@
           [:resolved-column column]
           node))
 
-      (:connective :function-call)
+      (:connective :function-call :fragment-literal :fragment-fn)
       (update-in node [1 :args] (fn [args] (mapv #(process-value-expression rel %) args)))
 
       (:negation :unary-operation)

@@ -160,6 +160,26 @@
       (update :query conj (str "(" query ")"))
       (update :params into params))))
 
+(defmethod compile-value-expression :fragment-literal [acc env rel [_ {:keys [fragment-literal args]}]]
+  (reduce
+    (fn [acc' arg]
+      (let [{:keys [params]} (compile-value-expression empty-acc env rel arg)]
+        (update acc' :params into params)))
+    (update acc :query conj fragment-literal)
+    args))
+
+(defmethod compile-value-expression :fragment-fn [acc env rel [_ {:keys [fragment-fn args]}]]
+  (let [compiled-args (mapv
+                        (fn [arg]
+                          (let [{:keys [query params]} (compile-value-expression empty-acc env rel arg)]
+                            (into [(str/join " " query)] params)))
+                        args)
+        _ (println args compiled-args)
+        [query & params] (fragment-fn env rel compiled-args)]
+    (-> acc
+      (update :query conj query)
+      (update :params into params))))
+
 (defn with-distinct [acc env rel]
   (if-let [dist (:distinct rel)]
     (if (boolean? dist)

@@ -5,8 +5,8 @@
   {:left "LEFT OUTER JOIN"
    :left-lateral "LEFT JOIN LATERAL"
    :right "RIGHT OUTER JOIN"
-   :right-lateral "RIGHT JOIN LATERAL"
    :inner "INNER JOIN"
+   :inner-lateral "INNER JOIN LATERAL"
    :full "FULL OUTER JOIN"
    :cross "CROSS JOIN"})
 
