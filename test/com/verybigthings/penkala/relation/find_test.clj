@@ -146,8 +146,9 @@
                                            :name (str (gensym "rel_"))
                                            :query ["SELECT foo, qux FROM (VALUES ('foo1', 'qux1'), ('foo2', 'qux2')) AS q (foo, qux)"]})
         rel      (-> products
+                   ;;(rel2/where [:parent-scope [:and [:= :id 1] [:= :id 2]]])
                    ;;(rel2/where [:= :id 1])
-                   (rel2/extend-with-aggregate :count-products :count 1)
+                   #_(rel2/extend-with-aggregate :count-products :count 1)
                    ;;(rel2/select [:id :count-products])
                    ;;(rel2/only)
                    ;;(rel2/distinct [:name (rel2/column :id)])
@@ -163,9 +164,10 @@
                          (rel2/having [:< :count 1]))
                        :users [:= :user-id :users/id])
                      :orders
-                     [:= :id :orders/product-id])
-                   (rel2/select [:id])
-                   (rel2/where [:in :id (-> products
+                     [:or true [:is-not-false [:not false]] [:foo :bar] [:and [:is-true true] [:= :id :orders/product-id]]])
+                   #_(rel2/select [:id])
+
+                   #_(rel2/where [:in :id (-> products
                                           (rel2/select [:id])
                                           (rel2/where [:= :id 1]))])
                    ;;(rel2/where [:= :orders.users/ln "A TEST USER"])
@@ -180,25 +182,41 @@
                    ;;(rel2/offset 1)
                    ;;(rel2/limit 2)
                    )
-        p1 (-> products
+        #_#_p1 (-> products
              (rel2/select [:id :name])
              (rel2/join :left (rel2/select orders [:id :product-id]) :orders [:= :id :orders/product-id])
              (rel2/where [:or [:= :id 1] [:= :id 2]]))
-        p2 (-> products
+        #_#_p2 (-> products
              (rel2/select [:id :name])
              (rel2/join :left (rel2/select orders [:id :product-id]) :orders [:= :id :orders/product-id])
              (rel2/where [:or [:= :id 2] [:= :id 3]]))
-        p1-p2 (rel2/intersect p1 p2)
-        pp (-> products
-             (rel2/join :left p1-p2 :pp [:= :id :pp/id]))]
+        #_#_p1-p2 (rel2/except p1 p2)
+        #_#_pp (-> products
+             (rel2/join :left p1-p2 :pp [:= :id :pp/id]))
+        p-with-parent (rel2/with-parent products products)
+        ptest (-> products
+                (rel2/extend :pname (-> p-with-parent
+                                      (rel2/select [:name])
+                                      (rel2/where [:= :id [:parent-scope :id]])))
+                (rel2/select [:id :pname]))
+
+        ptest2 (-> products
+                 (rel2/select [:id :name])
+                 (rel2/join :left-lateral
+                   (-> orders
+                     (rel2/with-parent products)
+                     (rel2/extend :serialized [:json-agg [:json-build-object (rel2/literal "'id'") :id, (rel2/literal "'user_id'"), :user-id]])
+                     (rel2/select [:serialized])
+                     (rel2/where [:= :product-id [:parent-scope :id]]))
+                   :orders
+                   true))]
     ;;   (println (jdbc/execute! db-uri [(rel/to-sql rel)]))
-    ;;(clojure.pprint/pprint rel)
+    (clojure.pprint/pprint ptest2)
     ;;(println (prettify-sql (first (sel/format-query {} (rel2/join orders :left users :users [:= :user-id :users/id]) {:product-name "PRODUCT 1" :product-id 1}))))
     ;;(println (sel/format-query {} (rel2/join computed-rel :inner computed-rel2 :c2 [:= :foo :c2/foo]) {}))
-    (println (prettify-sql (first (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))))
-    (println (first (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1})))
-    (println (-> (rel2/get-select-query pp {}) first        ;;prettify-sql
-               ))
+    (println (prettify-sql (first (sel/format-query {} ptest2 {:product-name "PRODUCT 1" :product-id 1}))))
+    (println (first (sel/format-query {} ptest2 {:product-name "PRODUCT 1" :product-id 1})))
+    ;;(println (-> (rel2/get-select-query p1-p2 {}) first        prettify-sql ))
     ;;(println (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))
     ;;(println (jdbc/execute! db-uri (sel/format-query {} rel {})))
     (is false)))

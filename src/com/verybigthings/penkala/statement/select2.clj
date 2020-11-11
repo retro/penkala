@@ -1,7 +1,9 @@
 (ns com.verybigthings.penkala.statement.select2
   (:require [clojure.string :as str]
-            [com.verybigthings.penkala.util.core :refer [q expand-join-path path-prefix-join join-separator vec-conj]]
-            [camel-snake-kebab.core :refer [->SCREAMING_SNAKE_CASE_STRING]]))
+            [com.verybigthings.penkala.util.core :refer [q expand-join-path path-prefix-join join-separator vec-conj joins]]
+            [camel-snake-kebab.core :refer [->SCREAMING_SNAKE_CASE_STRING ->snake_case_string]]))
+
+(def ^:dynamic *scopes* [])
 
 (declare format-query-without-params-resolution)
 
@@ -35,14 +37,14 @@
 (defmulti compile-value-expression (fn [acc env rel [vex-type & _]] vex-type))
 
 (defmethod compile-function-call :default [acc env rel function-name args]
-  (let [sql-function-name (->SCREAMING_SNAKE_CASE_STRING function-name)
+  (let [sql-function-name (->snake_case_string function-name)
         {:keys [query params]} (reduce
                                  (fn [acc arg]
                                    (compile-value-expression acc env rel arg))
                                  {:query [] :params []}
                                  args)]
     (-> acc
-      (update :query conj (str sql-function-name "(" (str/join " " query) ")"))
+      (update :query conj (str sql-function-name "(" (str/join ", " query) ")"))
       (update :params into params))))
 
 (defmethod compile-value-expression :default [acc env rel [vex-type & args]]
@@ -74,6 +76,9 @@
   (-> acc
     (update :query conj "?")
     (update :params conj (name val))))
+
+(defmethod compile-value-expression :literal [acc _ _ [_ val]]
+  (update acc :query conj val))
 
 (defmethod compile-value-expression :unary-operation [{:keys [query params]} env rel [_ {:keys [op arg1]}]]
   (let [sql-op (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
@@ -129,12 +134,28 @@
       (update :query conj "?")
       (update :params conj param-getter))))
 
+(defmethod compile-value-expression :parent-scope [acc env rel [_ {:keys [args]}]]
+  (let [parent-scope (last *scopes*)]
+    (when-not parent-scope
+      (throw (ex-info "Parent scope doesn't exist" {:relation rel})))
+    (binding [*scopes* (vec (drop-last *scopes*))]
+      (let [{:keys [env rel]} parent-scope]
+        (reduce
+          (fn [acc arg]
+            (let [{:keys [query params]} (compile-value-expression acc env rel arg)]
+              (-> acc
+                (update :params into params)
+                (update :query into query))))
+          acc
+          args)))))
+
 (defmethod compile-value-expression :relation [acc env rel [_ inner-rel]]
   (let [rel-alias-prefix (make-rel-alias-prefix env)
         env'             (-> env
                            (dissoc ::join-path-prefix)
                            (update ::relation-alias-prefix vec-conj rel-alias-prefix))
-        [query & params] (format-query-without-params-resolution env' inner-rel)]
+        [query & params] (binding [*scopes* (conj *scopes* {:env env :rel rel})]
+                           (format-query-without-params-resolution env' (assoc inner-rel :parent rel)))]
     (-> acc
       (update :query conj (str "(" query ")"))
       (update :params into params))))
@@ -190,7 +211,10 @@
     (let [rel-alias-prefix (make-rel-alias-prefix env)
           subquery-env (-> env
                          (update ::relation-alias-prefix vec-conj rel-alias-prefix))
-          [query & params] (if (fn? rel-query) (rel-query subquery-env) rel-query)
+          [query & params] (if (fn? rel-query)
+                             (binding [*scopes* (conj *scopes* {:env env :rel rel})]
+                               (rel-query subquery-env))
+                             rel-query)
           rel-name (get-in rel [:spec :name])]
       (-> acc
         (update :params into params)
@@ -207,11 +231,14 @@
   ([acc env rel path-prefix]
    (reduce-kv
      (fn [acc' alias j]
-       (let [join-sql-type ({:left "LEFT OUTER" :inner "INNER"} (:type j))
+       (let [join-sql-type (get joins (:type j))
              join-alias    (->> (conj path-prefix alias) (map name) path-prefix-join)
-             join-relation (:relation j)
-             [join-query & join-params] (format-query-without-params-resolution env join-relation)
-             join-clause   [join-sql-type "JOIN" (str "(" join-query ")") (q (rel-alias-with-prefix env join-alias)) "ON"]
+             join-relation (if (contains? #{:left-lateral :right-lateral} (:type j))
+                             (assoc (:relation j) :parent rel)
+                             (:relation j))
+             [join-query & join-params] (binding [*scopes* (conj *scopes* {:env env :rel rel})]
+                                          (format-query-without-params-resolution env join-relation))
+             join-clause   [join-sql-type (str "(" join-query ")") (q (rel-alias-with-prefix env join-alias)) "ON"]
              {:keys [query params]} (compile-value-expression {:query join-clause :params (vec join-params)} (assoc env ::join-path-prefix path-prefix) rel (:on j))]
          (-> acc'
            (update :params into params)

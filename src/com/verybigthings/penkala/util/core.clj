@@ -1,6 +1,15 @@
 (ns com.verybigthings.penkala.util.core
   (:require [clojure.string :as str]))
 
+(def joins
+  {:left "LEFT OUTER JOIN"
+   :left-lateral "LEFT JOIN LATERAL"
+   :right "RIGHT OUTER JOIN"
+   :right-lateral "RIGHT JOIN LATERAL"
+   :inner "INNER JOIN"
+   :full "FULL OUTER JOIN"
+   :cross "CROSS JOIN"})
+
 (def join-separator "__")
 (def join-separator-re #"__")
 
