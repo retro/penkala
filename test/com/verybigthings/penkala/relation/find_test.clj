@@ -6,7 +6,10 @@
             [com.verybigthings.penkala.rel :as rel]
             [com.verybigthings.penkala.rel2 :as rel2]
             [com.verybigthings.penkala.statement.select2 :as sel]
-            [next.jdbc :as jdbc]))
+            [next.jdbc :as jdbc]
+            [clojure.spec.alpha :as s]))
+
+(s/check-asserts true)
 
 (use-fixtures :once (partial th/reset-db-fixture "data-all"))
 
@@ -146,7 +149,9 @@
                                            :name (str (gensym "rel_"))
                                            :query ["SELECT foo, qux FROM (VALUES ('foo1', 'qux1'), ('foo2', 'qux2')) AS q (foo, qux)"]})
         rel      (-> products
-                   (rel2/extend-with-window :window-sum [:sum :id] nil [:id])
+                   ;;(rel2/extend-with-window :window-sum [:sum :id] nil [:id])
+                   (rel2/rename :name :foo)
+                   (rel2/lock :share)
                    ;;(rel2/where [:parent-scope [:and [:= :id 1] [:= :id 2]]])
                    ;;(rel2/where [:= :id 1])
                    #_(rel2/extend-with-aggregate :count-products :count 1)

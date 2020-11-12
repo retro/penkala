@@ -9,6 +9,7 @@
             [clojure.set :as set]))
 
 (defprotocol IRelation
+  (-lock [this lock-type locked-rows])
   (-join [this join-type join-rel join-alias join-on])
   (-where [this where-expression])
   (-or-where [this where-expression])
@@ -65,6 +66,12 @@
 
 (s/def ::join-type
   #(contains? joins %))
+
+(s/def ::lock-type
+  #(contains? #{:share :update :no-key-update :key-share} %))
+
+(s/def ::locked-rows
+  #(contains? #{:nowait :skip-locked} %))
 
 (s/def ::connective
   (s/and
@@ -214,7 +221,6 @@
         {:id id :name column-name :original column}))))
 
 (defn process-value-expression [rel node]
-  (println node)
   (let [[node-type args] node]
     (case node-type
       :wrapped-column
@@ -325,11 +331,11 @@
        acc'
        (:joins rel)))))
 
-(defn get-select-query [rel env]
-  (sel/format-query-without-params-resolution env rel))
-
-(defn get-select-query [rel env params]
-  (sel/format-query env rel params))
+(defn get-select-query
+  ([rel env]
+   (sel/format-query-without-params-resolution env rel))
+  ([rel env params]
+   (sel/format-query env rel params)))
 
 (defn make-combined-relations-spec [operator rel1 rel2]
   (let [rel1-cols (get-projected-columns rel1)
@@ -349,6 +355,8 @@
 
 (defrecord Relation [spec]
   IRelation
+  (-lock [this lock-type locked-rows]
+    (assoc this :lock {:type lock-type :rows locked-rows}))
   (-join [this join-type join-rel join-alias join-on]
     (let [join-rel' (if (contains? #{:left-lateral :right-lateral} join-type)
                       (assoc join-rel :parent this)
@@ -444,6 +452,19 @@
      :query #(get-select-query this %)})
   (-with-parent [this parent-rel]
     (assoc this :parent parent-rel)))
+
+(defn lock
+  ([rel lock-type]
+   (-lock rel lock-type nil))
+  ([rel lock-type locked-rows]
+   (-lock rel lock-type locked-rows)))
+
+(s/fdef lock
+  :args (s/cat
+          :rel ::relation
+          :lock-type ::lock-type
+          :locked-rows (s/? ::locked-rows))
+  :ret ::relation)
 
 (defn join [rel join-type join-rel join-alias join-on]
   (-join rel join-type join-rel join-alias join-on))

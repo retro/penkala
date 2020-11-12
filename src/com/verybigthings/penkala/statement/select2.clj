@@ -409,14 +409,20 @@
       (compile-order-by acc env rel order-by)
       acc)))
 
-(defn with-limit [acc _ rel]
-  (if-let [limit (:limit rel)]
-    (update acc :query conj (str "LIMIT " limit))
-    acc))
+(defn with-lock [acc env rel]
+  (let [{:keys [type rows]} (:lock rel)]
+    (cond-> acc
+      type (update :query conj (str "FOR " (->SCREAMING_SNAKE_CASE_STRING type)))
+      rows (update :query conj (->SCREAMING_SNAKE_CASE_STRING rows)))))
 
 (defn with-offset [acc _ rel]
   (if-let [offset (:offset rel)]
     (update acc :query conj (str "OFFSET " offset))
+    acc))
+
+(defn with-limit [acc _ rel]
+  (if-let [limit (:limit rel)]
+    (update acc :query conj (str "LIMIT " limit))
     acc))
 
 (defn format-query-without-params-resolution [env rel]
@@ -428,6 +434,7 @@
                                  (with-where env rel)
                                  (with-group-by-and-having env rel)
                                  (with-order-by env rel)
+                                 (with-lock env rel)
                                  (with-offset env rel)
                                  (with-limit env rel))]
     (into [(str/join " " query)] params)))
