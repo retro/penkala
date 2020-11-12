@@ -4,36 +4,32 @@
             [camel-snake-kebab.core :refer [->kebab-case-keyword ->kebab-case-string]]
             [clojure.string :as str]
             [clojure.walk :refer [prewalk]]
-            [com.verybigthings.penkala.util.core :refer [expand-join-path path-prefix-join path-prefix-split]]
+            [com.verybigthings.penkala.util.core :refer [expand-join-path path-prefix-join path-prefix-split joins]]
             [com.verybigthings.penkala.statement.select2 :as sel]
             [clojure.set :as set]))
 
 (defprotocol IRelation
-  (join [this join-type join-rel join-alias join-on])
-  (where [this where-expression])
-  (or-where [this where-expression])
-  (having [this having-expression])
-  (or-having [this having-expression])
-  (offset [this offset])
-  (limit [this limit])
-  (order-by [this orders])
-  (extend [this col-name extend-expression])
-  (extend-with-aggregate [this col-name agg-expression])
-  (extend-with-window
-    [this col-name window-expression]
-    [this col-name window-expression partitions]
-    [this col-name window-expression partitions orders])
-  (rename [this prev-col-name next-col-name])
-  (select [this projection])
-  (distinct [this] [this distinct-expression])
-  (only [this] [this is-only])
-  (union [this other-rel])
-  (union-all [this other-rel])
-  (intersect [this other-rel])
-  (except [this other-rel])
-  (wrap [this])
-  (with-parent [this parent])
-  (get-select-query [this env] [this env params]))
+  (-join [this join-type join-rel join-alias join-on])
+  (-where [this where-expression])
+  (-or-where [this where-expression])
+  (-having [this having-expression])
+  (-or-having [this having-expression])
+  (-offset [this offset])
+  (-limit [this limit])
+  (-order-by [this orders])
+  (-extend [this col-name extend-expression])
+  (-extend-with-aggregate [this col-name agg-expression])
+  (-extend-with-window [this col-name window-expression partitions orders])
+  (-rename [this prev-col-name next-col-name])
+  (-select [this projection])
+  (-distinct [this distinct-expression])
+  (-only [this is-only])
+  (-union [this other-rel])
+  (-union-all [this other-rel])
+  (-intersect [this other-rel])
+  (-except [this other-rel])
+  (-wrap [this])
+  (-with-parent [this parent]))
 
 (defrecord Wrapped [subject-type subject])
 
@@ -64,6 +60,11 @@
 
 (def all-operations
   (set/union (:unary operations) (:binary operations) (:ternary operations)))
+
+(s/def ::spec-map map?)
+
+(s/def ::join-type
+  #(contains? joins %))
 
 (s/def ::connective
   (s/and
@@ -324,6 +325,12 @@
        acc'
        (:joins rel)))))
 
+(defn get-select-query [rel env]
+  (sel/format-query-without-params-resolution env rel))
+
+(defn get-select-query [rel env params]
+  (sel/format-query env rel params))
+
 (defn make-combined-relations-spec [operator rel1 rel2]
   (let [rel1-cols (get-projected-columns rel1)
         rel2-cols (get-projected-columns rel2)]
@@ -342,22 +349,22 @@
 
 (defrecord Relation [spec]
   IRelation
-  (join [this join-type join-rel join-alias join-on]
+  (-join [this join-type join-rel join-alias join-on]
     (let [join-rel' (if (contains? #{:left-lateral :right-lateral} join-type)
                       (assoc join-rel :parent this)
                       join-rel)
           with-join (assoc-in this [:joins join-alias] {:relation join-rel' :type join-type})
           join-on' (process-value-expression with-join (s/conform ::value-expression join-on))]
       (assoc-in with-join [:joins join-alias :on] join-on')))
-  (where [this where-expression]
+  (-where [this where-expression]
     (and-predicate this :where where-expression))
-  (or-where [this where-expression]
+  (-or-where [this where-expression]
     (or-predicate this :where where-expression))
-  (having [this having-expression]
+  (-having [this having-expression]
     (and-predicate this :having having-expression))
-  (or-having [this having-expression]
+  (-or-having [this having-expression]
     (or-predicate this :having having-expression))
-  (rename [this prev-col-name next-col-name]
+  (-rename [this prev-col-name next-col-name]
     (let [id (get-in this [:aliases->ids prev-col-name])]
       (when (nil? id)
         (throw (ex-info-missing-column this prev-col-name)))
@@ -367,7 +374,7 @@
         (if (contains? (:projection this') prev-col-name)
           (update this' :projection #(-> % (disj prev-col-name) (conj next-col-name)))
           this'))))
-  (extend [this col-name extend-expression]
+  (-extend [this col-name extend-expression]
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
     (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-expression))
@@ -378,7 +385,7 @@
         (assoc-in [:ids->aliases id] col-name)
         (assoc-in [:aliases->ids col-name] id)
         (update :projection conj col-name))))
-  (extend-with-aggregate [this col-name agg-expression]
+  (-extend-with-aggregate [this col-name agg-expression]
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
     (let [processed-agg (process-value-expression this [:function-call (s/conform ::function-call agg-expression)])
@@ -389,11 +396,7 @@
         (assoc-in [:ids->aliases id] col-name)
         (assoc-in [:aliases->ids col-name] id)
         (update :projection conj col-name))))
-  (extend-with-window [this col-name window-expression]
-    (extend-with-window this col-name window-expression nil nil))
-  (extend-with-window [this col-name window-expression partitions]
-    (extend-with-window this col-name window-expression partitions nil))
-  (extend-with-window [this col-name window-expression partitions orders]
+  (-extend-with-window [this col-name window-expression partitions orders]
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
     (let [processed-window (process-value-expression this [:function-call (s/conform ::function-call window-expression)])
@@ -408,49 +411,248 @@
         (assoc-in [:ids->aliases id] col-name)
         (assoc-in [:aliases->ids col-name] id)
         (update :projection conj col-name))))
-  (select [this projection]
+  (-select [this projection]
     (let [processed-projection (process-projection this (s/conform ::column-list projection))]
       (assoc this :projection processed-projection)))
-  (only [this]
-    (only this true))
-  (only [this is-only]
+  (-only [this is-only]
     (assoc this :only is-only))
-  (distinct [this]
-    (distinct this true))
-  (distinct [this distinct-expression]
+  (-distinct [this distinct-expression]
     (cond
       (boolean? distinct-expression)
       (assoc this :distinct distinct-expression)
       :else
       (let [processed-distinct (resolve-columns this (s/conform ::column-list distinct-expression))]
         (assoc this :distinct processed-distinct))))
-  (order-by [this orders]
+  (-order-by [this orders]
     (let [processed-orders (process-orders this (s/conform ::orders orders))]
       (assoc this :order-by processed-orders)))
-  (offset [this offset]
+  (-offset [this offset]
     (assoc this :offset offset))
-  (limit [this limit]
+  (-limit [this limit]
     (assoc this :limit limit))
-  (union [this other-rel]
+  (-union [this other-rel]
     (spec->relation (make-combined-relations-spec "UNION" this other-rel)))
-  (union-all [this other-rel]
+  (-union-all [this other-rel]
     (spec->relation (make-combined-relations-spec "UNION ALL" this other-rel)))
-  (intersect [this other-rel]
+  (-intersect [this other-rel]
     (spec->relation (make-combined-relations-spec "INTERSECT" this other-rel)))
-  (except [this other-rel]
+  (-except [this other-rel]
     (spec->relation (make-combined-relations-spec "EXCEPT" this other-rel)))
-  (wrap [this]
+  (-wrap [this]
     {:name (str (gensym "rel_"))
      :columns (get-projected-columns this)
      :query #(get-select-query this %)})
-  (with-parent [this parent-rel]
-    (assoc this :parent parent-rel))
-  (get-select-query [this env]
-    (sel/format-query-without-params-resolution env this))
-  (get-select-query [this env params]
-    (sel/format-query env this params)))
+  (-with-parent [this parent-rel]
+    (assoc this :parent parent-rel)))
 
-(defn with-columns [rel]
+(defn join [rel join-type join-rel join-alias join-on]
+  (-join rel join-type join-rel join-alias join-on))
+
+(s/fdef join
+  :args (s/cat
+          :rel ::relation
+          :join-type ::join-type
+          :join-rel ::relation
+          :join-alias keyword?
+          :join-on ::value-expression)
+  :ret ::relation)
+
+(defn where [rel where-expression]
+  (-where rel where-expression))
+
+(s/fdef where
+  :args (s/cat
+          :rel ::relation
+          :where-expression ::value-expression)
+  :ret ::relation)
+
+(defn or-where [rel where-expression]
+  (-or-where rel where-expression))
+
+(s/fdef or-where
+  :args (s/cat
+          :rel ::relation
+          :where-expression ::value-expression)
+  :ret ::relation)
+
+(defn having [rel having-expression]
+  (-having rel having-expression))
+
+(s/fdef having
+  :args (s/cat
+          :rel ::relation
+          :having-expression ::value-expression)
+  :ret ::relation)
+
+(defn or-having [rel having-expression]
+  (-or-having rel having-expression))
+
+(s/fdef or-having
+  :args (s/cat
+          :rel ::relation
+          :having-expression ::value-expression)
+  :ret ::relation)
+
+(defn offset [rel offset]
+  (-offset rel offset))
+
+(s/fdef offset
+  :args (s/cat
+          :rel ::relation
+          :offset int?)
+  :ret ::relation)
+
+(defn limit [rel limit]
+  (-limit rel limit))
+
+(s/fdef limit
+  :args (s/cat
+          :rel ::relation
+          :limit int?)
+  :ret ::relation)
+
+(defn order-by [rel orders]
+  (-order-by rel orders))
+
+(s/fdef order-by
+  :args (s/cat
+          :rel ::relation
+          :orders ::orders)
+  :ret ::relation)
+
+(defn extend [rel col-name extend-expression]
+  (-extend rel col-name extend-expression))
+
+(s/fdef extend
+  :args (s/cat
+          :rel ::relation
+          :col-name keyword?
+          :extend-expression ::value-expression)
+  :ret ::relation)
+
+(defn extend-with-aggregate [rel col-name agg-expression]
+  (-extend-with-aggregate rel col-name agg-expression))
+
+(s/fdef extend-with-aggregate
+  :args (s/cat
+          :rel ::relation
+          :col-name keyword?
+          :agg-expression ::function-call)
+  :ret ::relation)
+
+(defn extend-with-window
+  ([rel col-name window-expression]
+   (-extend-with-window rel col-name window-expression nil nil))
+  ([rel col-name window-expression partitions]
+   (-extend-with-window rel col-name window-expression partitions nil))
+  ([rel col-name window-expression partitions orders]
+   (-extend-with-window rel col-name window-expression partitions orders)))
+
+(s/fdef extend-with-aggregate
+  :args (s/cat
+          :rel ::relation
+          :col-name keyword?
+          :window-expression ::function-call
+          :partitions (s/? ::column-list)
+          :orders (s/? ::orders))
+  :ret ::relation)
+
+(defn rename [rel prev-col-name next-col-name]
+  (-rename rel prev-col-name next-col-name))
+
+(s/fdef rename
+  :args (s/cat
+          :rel ::relation
+          :prev-col-name keyword?
+          :next-col-name keyword?)
+  :ret ::relation)
+
+(defn select [rel projection]
+  (-select rel projection))
+
+(s/fdef select
+  :args (s/cat
+          :rel ::relation
+          :projection ::column-list)
+  :ret ::relation)
+
+(defn distinct
+  ([rel]
+   (-distinct rel true))
+  ([rel distinct-expression]
+   (-distinct rel distinct-expression)))
+
+(s/fdef distinct
+  :args (s/cat
+          :rel ::relation
+          :distinct-expression (s/or
+                                 :boolean boolean?
+                                 :distinct-expression ::column-list))
+  :ret ::relation)
+
+(defn only
+  ([rel]
+   (-only rel true))
+  ([rel is-only]
+   (-only rel is-only)))
+
+(s/fdef only
+  :args (s/cat
+          :rel ::relation
+          :is-only (s/? boolean?))
+  :ret ::relation)
+
+(defn union [rel other-rel]
+  (-union rel other-rel))
+
+(s/fdef union
+  :args (s/cat
+          :rel ::relation
+          :other-rel ::relation)
+  :ret ::relation)
+
+(defn union-all [rel other-rel]
+  (-union-all rel other-rel))
+
+(s/fdef union-all
+  :args (s/cat
+          :rel ::relation
+          :other-rel ::relation)
+  :ret ::relation)
+
+(defn intersect [rel other-rel]
+  (-intersect rel other-rel))
+
+(s/fdef intersect
+  :args (s/cat
+          :rel ::relation
+          :other-rel ::relation)
+  :ret ::relation)
+
+(defn except [rel other-rel]
+  (-except rel other-rel))
+
+(s/fdef except
+  :args (s/cat
+          :rel ::relation
+          :other-rel ::relation)
+  :ret ::relation)
+
+(defn wrap [rel]
+  (-wrap rel))
+
+(s/fdef wrap
+  :args (s/cat :rel ::relation)
+  :ret ::relation)
+
+(defn with-parent [rel parent]
+  (-with-parent rel parent))
+
+(s/fdef with-parent
+  :args (s/cat :rel ::relation)
+  :ret ::relation)
+
+(defn with-default-columns [rel]
   (let [columns (get-in rel [:spec :columns])]
     (reduce
       (fn [acc col]
@@ -467,11 +669,23 @@
       rel
       columns)))
 
+(s/fdef with-default-columns
+  :args (s/cat :rel ::relation)
+  :ret ::relation)
+
 (defn with-default-projection [rel]
   (assoc rel :projection (set (keys (:aliases->ids rel)))))
 
+(s/fdef with-default-projection
+  :args (s/cat :rel ::relation)
+  :ret ::relation)
+
 (defn spec->relation [spec]
   (-> (->Relation (assoc spec :namespace (->kebab-case-string (:name spec))))
-    (with-columns)
+    (with-default-columns)
     (with-default-projection)))
+
+(s/fdef spec->relation
+  :args (s/cat :spec-map ::spec-map)
+  :ret ::relation)
 
