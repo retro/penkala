@@ -8,11 +8,8 @@
             [com.verybigthings.penkala.statement.select2 :as sel]
             [clojure.set :as set]))
 
-;; TODO: Explicit group-by?
-;; TODO: fragment
-
 (defprotocol IRelation
-  (join [this join-type join-rel join-alias] [this join-type join-rel join-alias join-on])
+  (join [this join-type join-rel join-alias join-on])
   (where [this where-expression])
   (or-where [this where-expression])
   (having [this having-expression])
@@ -21,7 +18,11 @@
   (limit [this limit])
   (order-by [this orders])
   (extend [this col-name extend-expression])
-  (extend-with-aggregate [this col-name agg-fn agg-expression])
+  (extend-with-aggregate [this col-name agg-expression])
+  (extend-with-window
+    [this col-name window-expression]
+    [this col-name window-expression partitions]
+    [this col-name window-expression partitions orders])
   (rename [this prev-col-name next-col-name])
   (select [this projection])
   (distinct [this] [this distinct-expression])
@@ -212,6 +213,7 @@
         {:id id :name column-name :original column}))))
 
 (defn process-value-expression [rel node]
+  (println node)
   (let [[node-type args] node]
     (case node-type
       :wrapped-column
@@ -340,10 +342,7 @@
 
 (defrecord Relation [spec]
   IRelation
-  (join [this join-type join-rel join-alias]
-    (throw (ex-info "Join without clause not implemented yet" {})))
   (join [this join-type join-rel join-alias join-on]
-    (s/assert ::value-expression join-on)
     (let [join-rel' (if (contains? #{:left-lateral :right-lateral} join-type)
                       (assoc join-rel :parent this)
                       join-rel)
@@ -369,29 +368,47 @@
           (update this' :projection #(-> % (disj prev-col-name) (conj next-col-name)))
           this'))))
   (extend [this col-name extend-expression]
-    (s/assert ::value-expression extend-expression)
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
     (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-expression))
           id (keyword (gensym "column-"))]
       (-> this
-        (assoc-in [:columns id] {:type :computed :value-expression processed-extend})
+        (assoc-in [:columns id] {:type :computed
+                                 :value-expression processed-extend})
         (assoc-in [:ids->aliases id] col-name)
         (assoc-in [:aliases->ids col-name] id)
         (update :projection conj col-name))))
-  (extend-with-aggregate [this col-name agg-fn agg-expression]
-    (s/assert ::value-expression agg-expression)
+  (extend-with-aggregate [this col-name agg-expression]
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
-    (let [processed-agg (process-value-expression this (s/conform ::value-expression agg-expression))
+    (let [processed-agg (process-value-expression this [:function-call (s/conform ::function-call agg-expression)])
           id (keyword (gensym "column-"))]
       (-> this
-        (assoc-in [:columns id] {:type :aggregate :value-expression [:function-call {:fn agg-fn :args [processed-agg]}]})
+        (assoc-in [:columns id] {:type :aggregate
+                                 :value-expression processed-agg})
+        (assoc-in [:ids->aliases id] col-name)
+        (assoc-in [:aliases->ids col-name] id)
+        (update :projection conj col-name))))
+  (extend-with-window [this col-name window-expression]
+    (extend-with-window this col-name window-expression nil nil))
+  (extend-with-window [this col-name window-expression partitions]
+    (extend-with-window this col-name window-expression partitions nil))
+  (extend-with-window [this col-name window-expression partitions orders]
+    (when (contains? (:aliases->ids this) col-name)
+      (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
+    (let [processed-window (process-value-expression this [:function-call (s/conform ::function-call window-expression)])
+          processed-partitions (when partitions (resolve-columns this (s/conform ::column-list partitions)))
+          processed-orders (when orders (process-orders this (s/conform ::orders orders)))
+          id (keyword (gensym "column-"))]
+      (-> this
+        (assoc-in [:columns id] {:type :window
+                                 :value-expression processed-window
+                                 :partition-by processed-partitions
+                                 :order-by processed-orders})
         (assoc-in [:ids->aliases id] col-name)
         (assoc-in [:aliases->ids col-name] id)
         (update :projection conj col-name))))
   (select [this projection]
-    (s/assert ::column-list projection)
     (let [processed-projection (process-projection this (s/conform ::column-list projection))]
       (assoc this :projection processed-projection)))
   (only [this]
@@ -401,7 +418,6 @@
   (distinct [this]
     (distinct this true))
   (distinct [this distinct-expression]
-    (s/assert ::value-expression distinct-expression)
     (cond
       (boolean? distinct-expression)
       (assoc this :distinct distinct-expression)
@@ -409,7 +425,6 @@
       (let [processed-distinct (resolve-columns this (s/conform ::column-list distinct-expression))]
         (assoc this :distinct processed-distinct))))
   (order-by [this orders]
-    (s/assert ::orders orders)
     (let [processed-orders (process-orders this (s/conform ::orders orders))]
       (assoc this :order-by processed-orders)))
   (offset [this offset]

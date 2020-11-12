@@ -146,6 +146,7 @@
                                            :name (str (gensym "rel_"))
                                            :query ["SELECT foo, qux FROM (VALUES ('foo1', 'qux1'), ('foo2', 'qux2')) AS q (foo, qux)"]})
         rel      (-> products
+                   (rel2/extend-with-window :window-sum [:sum :id] nil [:id])
                    ;;(rel2/where [:parent-scope [:and [:= :id 1] [:= :id 2]]])
                    ;;(rel2/where [:= :id 1])
                    #_(rel2/extend-with-aggregate :count-products :count 1)
@@ -153,10 +154,11 @@
                    ;;(rel2/only)
                    ;;(rel2/distinct [:name (rel2/column :id)])
                    ;;(rel2/distinct false)
-                   (rel2/join
+                   #_(rel2/join
                      :left
                      (rel2/join orders :left
                        (-> users
+                         (rel2/alias :foo-bar-users)
                          (rel2/extend :upper-name [:upper :name])
                          (rel2/extend-with-aggregate :count :count 1)
                          (rel2/extend :lower-name [:lower :upper-name])
@@ -205,7 +207,7 @@
                  (rel2/join :inner-lateral
                    (-> orders
                      (rel2/with-parent products)
-                     (rel2/extend-with-aggregate :serialized :json-agg [:json-build-object (rel2/quoted-literal :id) :id, (rel2/quoted-literal :user-id), :user-id])
+                     (rel2/extend-with-aggregate :serialized [:json-agg [:json-build-object (rel2/quoted-literal :id) :id, (rel2/quoted-literal :user-id), :user-id]])
                      (rel2/select [:serialized :product-id])
                      (rel2/where [:= :product-id [:parent-scope :id]]))
                    :orders
@@ -214,11 +216,11 @@
         ptest3 (-> products
                  (rel2/where [:fragment (fn [env rel [[query1 & params1]]] [(str query1 " = 2") params1]) :id]))]
     ;;   (println (jdbc/execute! db-uri [(rel/to-sql rel)]))
-    (clojure.pprint/pprint ptest3)
+    ;;(clojure.pprint/pprint ptest3)
     ;;(println (prettify-sql (first (sel/format-query {} (rel2/join orders :left users :users [:= :user-id :users/id]) {:product-name "PRODUCT 1" :product-id 1}))))
     ;;(println (sel/format-query {} (rel2/join computed-rel :inner computed-rel2 :c2 [:= :foo :c2/foo]) {}))
-    (println (prettify-sql (first (sel/format-query {} ptest3 {:product-name "PRODUCT 1" :product-id 1}))))
-    (println (first (sel/format-query {} ptest3 {:product-name "PRODUCT 1" :product-id 1})))
+    (println (prettify-sql (first (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))))
+    (println (first (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1})))
     ;;(println (-> (rel2/get-select-query p1-p2 {}) first        prettify-sql ))
     ;;(println (sel/format-query {} rel {:product-name "PRODUCT 1" :product-id 1}))
     ;;(println (jdbc/execute! db-uri (sel/format-query {} rel {})))

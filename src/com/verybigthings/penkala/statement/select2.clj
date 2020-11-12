@@ -12,26 +12,38 @@
 (defn make-rel-alias-prefix [env]
   (str (gensym "sq_")))
 
-(defn rel-alias-with-prefix [env rel-alias]
+(defn get-rel-alias-with-prefix [env rel-alias]
   (if-let [rel-alias-prefix (-> env ::relation-alias-prefix last)]
     (str rel-alias-prefix "__" rel-alias)
     rel-alias))
 
-(defn schema-qualified-relation-name [env rel]
-  (let [rel-name   (get-in rel [:spec :name])
-        rel-schema (get-in rel [:spec :schema])]
-    (str (q rel-schema) "." (q rel-name))))
+(defn get-rel-alias [rel]
+  (get-in rel [:spec :name]))
+
+(defn get-rel-schema [env rel]
+  (let [current-schema (::current-schema env)
+        schema-renames (::schema-renames env)
+        original-schema (get-in rel [:spec :schema])
+        renamed-schema (if-let [r (get schema-renames original-schema)] r original-schema)]
+    (when (not= current-schema renamed-schema)
+      renamed-schema)))
+
+(defn get-schema-qualified-relation-name [env rel]
+  (let [rel-name       (get-in rel [:spec :name])]
+    (if-let [rel-schema (get-rel-schema env rel)]
+      (str (q rel-schema) "." (q rel-name))
+      (q rel-name))))
 
 (defn get-resolved-column-identifier [env rel resolved-col col-def]
-  (let [col-id (:id resolved-col)
+  (let [col-id       (:id resolved-col)
         col-rel-path (vec (concat (::join-path-prefix env) (:path resolved-col)))]
     (if (seq col-rel-path)
-      (let [col-rel (get-in rel (expand-join-path col-rel-path))
+      (let [col-rel   (get-in rel (expand-join-path col-rel-path))
             col-alias (get-in col-rel [:ids->aliases col-id])
             full-path (map name (conj col-rel-path col-alias))
             [rel-name & col-parts] full-path]
-        (str (q (rel-alias-with-prefix env rel-name)) "." (q (path-prefix-join col-parts))))
-      (str (q (rel-alias-with-prefix env (get-in rel [:spec :name]))) "." (q (:name col-def))))))
+        (str (q (get-rel-alias-with-prefix env rel-name)) "." (q (path-prefix-join col-parts))))
+      (str (q (get-rel-alias-with-prefix env (get-rel-alias rel))) "." (q (:name col-def))))))
 
 (defmulti compile-function-call (fn [acc env rel function-name args] function-name))
 (defmulti compile-value-expression (fn [acc env rel [vex-type & _]] vex-type))
@@ -59,8 +71,8 @@
 
 (defmethod compile-value-expression :resolved-column [acc env rel [_ col]]
   (let [col-path (concat (::join-path-prefix env) (:path col))
-        col-rel (if (seq col-path) (get-in rel (expand-join-path col-path)) rel)
-        col-def (get-in col-rel [:columns (:id col)])]
+        col-rel  (if (seq col-path) (get-in rel (expand-join-path col-path)) rel)
+        col-def  (get-in col-rel [:columns (:id col)])]
     (case (:type col-def)
       :concrete
       (update acc :query conj (get-resolved-column-identifier env rel col col-def))
@@ -81,23 +93,23 @@
   (update acc :query conj val))
 
 (defmethod compile-value-expression :unary-operation [{:keys [query params]} env rel [_ {:keys [op arg1]}]]
-  (let [sql-op (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
+  (let [sql-op   (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
         arg1-acc (compile-value-expression {:query [] :params []} env rel arg1)]
     {:query (-> query (into (:query arg1-acc)) (conj sql-op))
      :params (-> params (into (:params arg1-acc)))}))
 
 (defmethod compile-value-expression :binary-operation [{:keys [query params]} env rel [_ {:keys [op arg1 arg2]}]]
-  (let [sql-op (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
+  (let [sql-op   (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
         arg1-acc (compile-value-expression {:query [] :params []} env rel arg1)
-        arg2-acc (compile-value-expression  {:query [] :params []} env rel arg2)]
+        arg2-acc (compile-value-expression {:query [] :params []} env rel arg2)]
     {:query (-> query (into (:query arg1-acc)) (conj sql-op) (into (:query arg2-acc)))
      :params (-> params (into (:params arg1-acc)) (into (:params arg2-acc)))}))
 
 (defmethod compile-value-expression :ternary-operation [{:keys [query params]} env rel [_ {:keys [op arg1 arg2 arg3]}]]
-  (let [sql-op (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
+  (let [sql-op   (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))
         arg1-acc (compile-value-expression {:query [] :params []} env rel arg1)
-        arg2-acc (compile-value-expression  {:query [] :params []} env rel arg2)
-        arg3-acc (compile-value-expression  {:query [] :params []} env rel arg3)]
+        arg2-acc (compile-value-expression {:query [] :params []} env rel arg2)
+        arg3-acc (compile-value-expression {:query [] :params []} env rel arg3)]
     {:query (-> query (into (:query arg1-acc)) (conj sql-op) (into (:query arg2-acc)) (conj "AND") (into (:query arg3-acc)))
      :params (-> params (into (:params arg1-acc)) (into (:params arg2-acc)) (into (:params arg3-acc)))}))
 
@@ -174,11 +186,28 @@
                           (let [{:keys [query params]} (compile-value-expression empty-acc env rel arg)]
                             (into [(str/join " " query)] params)))
                         args)
-        _ (println args compiled-args)
         [query & params] (fragment-fn env rel compiled-args)]
     (-> acc
       (update :query conj query)
       (update :params into params))))
+
+(defn compile-order-by [acc env rel order-by]
+  (println order-by)
+  (let [{:keys [query params]}
+        (reduce
+          (fn [acc {:keys [column order-direction order-nulls]}]
+            (let [{:keys [query params]} (compile-value-expression empty-acc env rel column)
+                  order (cond-> query
+                          order-direction (conj ({:asc "ASC" :desc "DESC"} order-direction))
+                          order-nulls (conj ({:nulls-first "NULLS FIRST" :nulls-last "NULLS LAST"} order-nulls)))]
+              (-> acc
+                (update :query conj (str/join " " order))
+                (update :params into params))))
+          empty-acc
+          order-by)]
+    (-> acc
+      (update :params into params)
+      (update :query conj (str "ORDER BY " (str/join ", " query))))))
 
 (defn with-distinct [acc env rel]
   (if-let [dist (:distinct rel)]
@@ -190,6 +219,7 @@
           (update :query conj (str "DISTINCT ON(" (str/join ", " query) ")")))))
     acc))
 
+
 (defn with-projection
   ([acc env rel]
    (let [{:keys [query params]} (with-projection empty-acc env rel [])]
@@ -200,24 +230,68 @@
    (let [projection (get-in rel [:projection])
          acc'       (reduce
                       (fn [acc alias]
-                        (let [col-id    (get-in rel [:aliases->ids alias])
-                              col-def   (get-in rel [:columns col-id])
+                        (let [col-id            (get-in rel [:aliases->ids alias])
+                              col-def           (get-in rel [:columns col-id])
                               path-prefix-names (mapv name path-prefix)
-                              col-path  (conj path-prefix-names (name alias))
-                              col-alias (if (seq path-prefix) (path-prefix-join col-path) (name alias))
-                              col-name (if (seq path-prefix) (path-prefix-join (rest col-path)) (:name col-def))
-                              rel-alias (if (seq path-prefix) (first path-prefix-names) (get-in rel [:spec :name]))
-                              col-type (:type col-def)]
+                              col-path          (conj path-prefix-names (name alias))
+                              col-alias         (if (seq path-prefix) (path-prefix-join col-path) (name alias))
+                              col-name          (if (seq path-prefix) (path-prefix-join (rest col-path)) (:name col-def))
+                              rel-alias         (if (seq path-prefix) (first path-prefix-names) (get-rel-alias rel))
+                              col-type          (:type col-def)]
                           (cond
 
                             (or (seq path-prefix) (= col-type :concrete))
-                            (update acc :query conj (str  (q (rel-alias-with-prefix env rel-alias)) "." (q col-name) " AS " (q col-alias)))
+                            (update acc :query conj (str (q (get-rel-alias-with-prefix env rel-alias)) "." (q col-name) " AS " (q col-alias)))
 
                             (and (not (seq path-prefix)) (contains? #{:computed :aggregate} col-type))
                             (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
                               (-> acc
                                 (update :params into params)
-                                (update :query conj (str (str/join " " query) " AS " (q col-alias))))))))
+                                (update :query conj (str (str/join " " query) " AS " (q col-alias)))))
+
+                            (and (not (seq path-prefix)) (= :window col-type))
+                            (let [{:keys [value-expression partition-by order-by]} col-def
+                                  order-by-query-params (when order-by (compile-order-by empty-acc env rel order-by))
+                                  partition-by-query-params (when partition-by (reduce #(compile-value-expression %1 env rel %2) empty-acc partition-by))
+                                  {:keys [query params]} (compile-value-expression empty-acc env rel value-expression)]
+                              (cond
+                                (and partition-by-query-params order-by-query-params)
+                                (-> acc
+                                  (update :params into params)
+                                  (update :params into (:params partition-by-query-params))
+                                  (update :params into (:params order-by-query-params))
+                                  (update :query conj (str/join " "
+                                                        [(str/join " " query)
+                                                         "OVER"
+                                                         (str "("
+                                                           "PARTITION BY " (str/join " " (:query partition-by-query-params))
+                                                           " "
+                                                           (str/join " " (:query order-by-query-params))
+                                                           ")")
+                                                         "AS" (q col-alias)])))
+                                partition-by-query-params
+                                (-> acc
+                                  (update :params into params)
+                                  (update :params into (:params partition-by-query-params))
+                                  (update :query conj (str/join " "
+                                                        [(str/join " " query)
+                                                         "OVER"
+                                                         (str "(" "PARTITION BY " (str/join " " (:query partition-by-query-params)) ")")
+                                                         "AS" (q col-alias)])))
+                                order-by-query-params
+                                (-> acc
+                                  (update :params into params)
+                                  (update :params into (:params partition-by-query-params))
+                                  (update :params into (:params order-by-query-params))
+                                  (update :query conj (str/join " "
+                                                        [(str/join " " query)
+                                                         "OVER"
+                                                         (str "(" (str/join " " (:query order-by-query-params)) ")")
+                                                         "AS" (q col-alias)])))
+                                :else
+                                (-> acc
+                                  (update :params into params)
+                                  (update :query conj (str (str/join " " query) " OVER () AS " (q col-alias)))))))))
                       acc
                       (sort projection))]
      (reduce-kv
@@ -229,22 +303,22 @@
 (defn with-from [acc env rel]
   (if-let [rel-query (get-in rel [:spec :query])]
     (let [rel-alias-prefix (make-rel-alias-prefix env)
-          subquery-env (-> env
-                         (update ::relation-alias-prefix vec-conj rel-alias-prefix))
+          subquery-env     (-> env
+                             (update ::relation-alias-prefix vec-conj rel-alias-prefix))
           [query & params] (if (fn? rel-query)
                              (binding [*scopes* (conj *scopes* {:env env :rel rel})]
                                (rel-query subquery-env))
                              rel-query)
-          rel-name (get-in rel [:spec :name])]
+          rel-name         (get-rel-alias rel)]
       (-> acc
         (update :params into params)
-        (update :query into ["FROM" (str "(" query ")") "AS" (q (rel-alias-with-prefix env rel-name))])))
+        (update :query into ["FROM" (str "(" query ")") "AS" (q (get-rel-alias-with-prefix env rel-name))])))
 
-    (let [rel-name (get-in rel [:spec :name])]
+    (let [rel-name (get-rel-alias rel)]
       (update acc :query into [(if (:only rel) "FROM ONLY" "FROM")
-                               (schema-qualified-relation-name env rel)
+                               (get-schema-qualified-relation-name env rel)
                                "AS"
-                               (q (rel-alias-with-prefix env rel-name))]))))
+                               (q (get-rel-alias-with-prefix env rel-name))]))))
 
 (defn with-joins
   ([acc env rel] (with-joins acc env rel []))
@@ -258,7 +332,7 @@
                              (:relation j))
              [join-query & join-params] (binding [*scopes* (conj *scopes* {:env env :rel rel})]
                                           (format-query-without-params-resolution env join-relation))
-             join-clause   [join-sql-type (str "(" join-query ")") (q (rel-alias-with-prefix env join-alias)) "ON"]
+             join-clause   [join-sql-type (str "(" join-query ")") (q (get-rel-alias-with-prefix env join-alias)) "ON"]
              {:keys [query params]} (compile-value-expression {:query join-clause :params (vec join-params)} (assoc env ::join-path-prefix path-prefix) rel (:on j))]
          (-> acc'
            (update :params into params)
@@ -302,17 +376,17 @@
    (let [projection (get-in rel [:projection])
          acc'       (reduce
                       (fn [acc alias]
-                        (let [col-id    (get-in rel [:aliases->ids alias])
-                              col-def   (get-in rel [:columns col-id])
+                        (let [col-id            (get-in rel [:aliases->ids alias])
+                              col-def           (get-in rel [:columns col-id])
                               path-prefix-names (mapv name path-prefix)
-                              col-path  (conj path-prefix-names (name alias))
-                              col-name (if (seq path-prefix) (path-prefix-join (rest col-path)) (:name col-def))
-                              rel-alias (if (seq path-prefix) (first path-prefix-names) (get-in rel [:spec :name]))
-                              col-type (:type col-def)]
+                              col-path          (conj path-prefix-names (name alias))
+                              col-name          (if (seq path-prefix) (path-prefix-join (rest col-path)) (:name col-def))
+                              rel-alias         (if (seq path-prefix) (first path-prefix-names) (get-rel-alias rel))
+                              col-type          (:type col-def)]
                           (cond
 
                             (or (seq path-prefix) (= col-type :concrete))
-                            (update acc :query conj (str (q (rel-alias-with-prefix env rel-alias)) "." (q col-name)))
+                            (update acc :query conj (str (q (get-rel-alias-with-prefix env rel-alias)) "." (q col-name)))
 
                             (and (not (seq path-prefix)) (= :computed col-type))
                             (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
@@ -332,21 +406,7 @@
 (defn with-order-by [acc env rel]
   (let [order-by (:order-by rel)]
     (if (seq order-by)
-      (let [{:keys [query params]}
-            (reduce
-              (fn [acc {:keys [column order-direction order-nulls]}]
-                (let [{:keys [query params]} (compile-value-expression empty-acc env rel column)
-                      order (cond-> query
-                              order-direction (conj ({:asc "ASC" :desc "DESC"} order-direction))
-                              order-nulls (conj ({:nulls-first "NULLS FIRST" :nulls-last "NULLS LAST"} order-nulls)))]
-                  (-> acc
-                    (update :query conj (str/join " " order))
-                    (update :params into params))))
-              empty-acc
-              order-by)]
-        (-> acc
-          (update :params into params)
-          (update :query conj (str "ORDER BY " (str/join ", " query)))))
+      (compile-order-by acc env rel order-by)
       acc)))
 
 (defn with-limit [acc _ rel]
@@ -376,3 +436,9 @@
   (let [[query & params] (format-query-without-params-resolution env rel)
         resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
     (into [query] resolved-params)))
+
+(defn with-schema-rename [env old-schema-name new-schema-name]
+  (assoc-in env [::schema-renames (name old-schema-name)] new-schema-name))
+
+(defn with-current-schema [env current-schema]
+  (assoc-in env [::current-schema] current-schema))
