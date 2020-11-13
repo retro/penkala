@@ -232,7 +232,7 @@
     ;;(println (jdbc/execute! db-uri (sel/format-query {} rel {})))
     (is false)))
 
-(deftest testing1
+#_(deftest testing1
   (let [products (rel2/spec->relation {:schema "public",
                                        :is_insertable_into true,
                                        :fk_origin_columns nil,

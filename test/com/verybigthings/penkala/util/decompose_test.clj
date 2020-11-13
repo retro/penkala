@@ -19,6 +19,34 @@
                                   :columns {:children_id :id :children_val :val}}}}
             data)))))
 
+(deftest it-should-collapse-simple-tree-structures-ns
+  (let [data [{:parent_id 1 :parent_val "p1" :children_id 11 :children_val "c1"}
+              {:parent_id 1 :parent_val "p1" :children_id 12 :children_val "c2"}]]
+    (is (= [{:parent/id 1 :parent/val "p1" :parent/children [{:child/id 11 :child/val "c1"} {:child/id 12 :child/val "c2"}]}]
+          (d/decompose
+            {:pk :parent_id
+             :namespace :parent
+             :columns {:parent_id :id
+                       :parent_val :val
+                       :children {:pk :children_id
+                                  :namespace :child
+                                  :columns {:children_id :id :children_val :val}}}}
+            data)))))
+
+(deftest it-should-decompose-to-parent
+  (let [data [{:parent_id 1 :parent_val "p1" :children_id 11 :children_val "c1"}]]
+    (is (= [{:parent/id 1 :parent/val "p1" :child/id 11 :child/val "c1"}]
+          (d/decompose
+            {:pk :parent_id
+             :namespace :parent
+             :columns {:parent_id :id
+                       :parent_val :val
+                       :children {:pk :children_id
+                                  :decompose-to :parent
+                                  :namespace :child
+                                  :columns {:children_id :id :children_val :val}}}}
+            data)))))
+
 (deftest it-should-handle-objects
   (is (= [{:id 1 :val "p1" :children [{:id 11 :val "c1"}]}]
         (d/decompose
@@ -39,7 +67,7 @@
                                 :columns {:children_id :id :children_val :val}}}}
           {:parent_id 1 :children_id 11}))))
 
-(deftest it-should-handle-array-fields
+(deftest it-should-handle-vector-fields
   (is (= [{:id 1 :arr ["one" "two"] :children [{:id 11 :arr ["three" "four"]}]}]
         (d/decompose
           {:pk :parent_id
@@ -52,7 +80,7 @@
            :children_id 11
            :children_arr ["three" "four"]}))))
 
-(deftest can-use-arrays-of-column-names-if-no-mapping-is-needed
+(deftest can-use-vector-of-column-names-if-no-mapping-is-needed
   (is (= [{:parent_id 1 :parent_val "p1" :children [{:children_id 11 :children_val "c1"}
                                                     {:children_id 12 :children_val "c2"}]}]
         (d/decompose
@@ -121,36 +149,36 @@
                                                     :decompose-to :map}}}}}
           {:parent_id 1 :parent_val "p1" :child_id 11 :child_val "c1" :grandchild_id 111 :grandchild_val "g1"}))))
 
-(deftest decomposes-to-dictionaries
+(deftest decomposes-to-indexed-by-pk
   (is (= [{:id 1 :val "p1" :child {11 {:id 11 :val "c1" :grandchild {111 {:id 111 :val "g1"}}}}}]
         (d/decompose
           {:pk :parent_id
            :columns {:parent_id :id
                      :parent_val :val
                      :child {:pk :child_id
-                             :decompose-to :dict
+                             :decompose-to :indexed-by-pk
                              :columns {:child_id :id
                                        :child_val :val
                                        :grandchild {:pk :grandchild_id
                                                     :columns {:grandchild_id :id
                                                               :grandchild_val :val}
-                                                    :decompose-to :dict}}}}}
+                                                    :decompose-to :indexed-by-pk}}}}}
           {:parent_id 1 :parent_val "p1" :child_id 11 :child_val "c1" :grandchild_id 111 :grandchild_val "g1"}))))
 
-(deftest decomposes-to-dictionaries-with-array-column-list
+(deftest decomposes-to-indexed-by-pk-with-array-column-list
   (is (= [{:id 1 :val "p1" :child {11 {:child_id 11 :child_val "c1" :grandchild {111 {:id 111 :val "g1"}}}}}]
         (d/decompose
           {:pk :parent_id
            :columns {:parent_id :id
                      :parent_val :val
                      :child {:pk :child_id
-                             :decompose-to :dict
+                             :decompose-to :indexed-by-pk
                              :columns [:child_id
                                        :child_val
                                        {:grandchild {:pk :grandchild_id
                                                      :columns {:grandchild_id :id
                                                                :grandchild_val :val}
-                                                     :decompose-to :dict}}]}}}
+                                                     :decompose-to :indexed-by-pk}}]}}}
           {:parent_id 1 :parent_val "p1" :child_id 11 :child_val "c1" :grandchild_id 111 :grandchild_val "g1"}))))
 
 (deftest consolidates-duplicate-children-by-pk

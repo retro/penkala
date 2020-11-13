@@ -3,7 +3,7 @@
             [com.verybigthings.penkala.util.core :refer [as-vec path-prefix-join]]
             [camel-snake-kebab.core :refer [->kebab-case-string ->kebab-case-keyword]]))
 
-(s/def ::decompose-to #{:dict :coll :map})
+(s/def ::decompose-to #{:indexed-by-pk :coll :map :parent})
 
 (s/def ::column-map
   (s/map-of
@@ -34,87 +34,96 @@
     :req-un [::pk ::columns]
     :opt-un [::decompose-to]))
 
-(def nil-pks-err)
+(declare process-schema)
 
-(defn assoc-columns [acc schema renames row]
-  (let [ns (:namespace schema)]
-    (reduce-kv
-      (fn [acc' k v]
-        (if (contains? row k)
-          (let [col-name (if ns (keyword (name ns) (name v)) v)]
-            (assoc acc' col-name (get row k)))
-          acc'))
-      acc
-      renames)))
+(defn process-schema-columns [schema]
+  (let [columns (:columns schema)
+        ns-name (when-let [ns (:namespace schema)] (name ns))
+        rename (if ns-name (fn [k] (keyword ns-name (name k))) identity)
+        process-map-columns (fn [schema columns]
+                              (reduce-kv
+                                (fn [acc k v]
+                                  (if (map? v)
+                                    (assoc-in acc [:schemas (rename k)] (process-schema v))
+                                    (assoc-in acc [:renames k] (rename v))))
+                                schema
+                                columns))]
+    (if (map? columns)
+      (process-map-columns schema columns)
+      (reduce
+        (fn [acc v]
+          (if (map? v)
+            (process-map-columns acc v)
+            (assoc-in acc [:renames v] (rename v))))
+        schema
+        columns))))
+
+(defn process-schema- [schema]
+  (-> schema
+    process-schema-columns
+    (update :pk as-vec)))
+
+(def process-schema (memoize process-schema-))
+
+(defn assoc-columns [acc renames row]
+  (reduce-kv
+    (fn [acc' k v]
+      (if (contains? row k)
+        (assoc acc' v (get row k))
+        acc'))
+    acc
+    renames))
 
 (declare build)
 
-(defn assoc-descendants [acc schema children-schemas idx row]
-  (let [ns (:namespace schema)]
-    (reduce-kv
-      (fn [m k v]
-        (let [descendant (build (get acc k) v idx row)]
-          (if descendant
-            (let [col-name (if ns (keyword (name ns) (name k)) k)]
-              (assoc m col-name descendant))
-            m)))
-      acc
-      children-schemas)))
-
-(defn expand-columns
-  ([columns] (expand-columns {:renames {} :schemas {}} columns))
-  ([expanded columns]
-   (if (map? columns)
-     (reduce-kv
-       (fn [acc k v]
-         (if (map? v)
-           (assoc-in acc [:schemas k] v)
-           (assoc-in acc [:renames k] v)))
-       expanded
-       columns)
-     (reduce
-       (fn [acc v]
-         (if (map? v)
-           (expand-columns acc v)
-           (assoc-in acc [:renames v] v)))
-       expanded
-       columns))))
+(defn assoc-descendants [acc schemas idx row]
+  (reduce-kv
+    (fn [m k v]
+      (let [descendant (build (get acc k) v idx row)]
+        (if descendant
+          (assoc m k descendant)
+          m)))
+    acc
+    schemas))
 
 (defn build [acc schema idx row]
-  (let [pks (-> schema :pk as-vec)
-        id (select-keys row pks)
-        {:keys [renames schemas]} (expand-columns (:columns schema))]
-    (if (every? nil? (vals id))
+  (let [pk (:pk schema)
+        is-composite-pk (< 1 (count pk))
+        id (if is-composite-pk (mapv #(get row %) pk) (get row (first pk)))
+        {:keys [renames schemas]} schema]
+    (if (or (and is-composite-pk (every? nil? id))
+          (and (not is-composite-pk) (nil? id)))
       acc
       (let [current (-> (get acc id {})
                       (vary-meta update ::idx #(or % idx))
-                      (assoc-columns schema renames row)
-                      (assoc-descendants schema schemas idx row))]
+                      (assoc-columns renames row)
+                      (assoc-descendants schemas idx row))]
         (assoc acc id current)))))
 
 (defn transform [schema mapping]
+  (println "---" mapping)
+
   (let [decompose-to (get schema :decompose-to :coll)
-        ns (:namespace schema)
-        pk (:pk schema)
-        {:keys [schemas]} (expand-columns (:columns schema))
+        schemas (:schemas schema)
         transformed (reduce-kv
                       (fn [acc k row]
                         (let [transformed
                               (reduce-kv
                                 (fn [row' k k-schema]
-                                  (let [col-name (if ns (keyword (name ns) (name k)) k)]
-                                    (assoc row' col-name (transform k-schema (get row col-name)))))
+                                  (let [transformed-child (transform k-schema (get row k))]
+                                    (if (= :parent (:decompose-to k-schema))
+                                      (-> row'
+                                        (dissoc k)
+                                        (merge transformed-child))
+                                      (assoc row' k transformed-child))))
                                 row
                                 schemas)]
                           (cond
                             (= :coll decompose-to)
                             (conj acc transformed)
 
-                            (= :dict decompose-to)
-                            (let [id (if (coll? pk)
-                                       (mapv (fn [pk] (get k pk)) pk)
-                                       (get k pk))]
-                              (assoc acc id transformed))
+                            (= :indexed-by-pk decompose-to)
+                            (assoc acc k transformed)
 
                             :else
                             transformed)))
@@ -128,15 +137,13 @@
 
 (defn decompose [schema data]
   (when (and (seq schema) (seq data))
-    (s/assert ::schema schema)
-    (let [pks (-> schema :pk as-vec)
+    (let [schema' (process-schema schema)
           mapping (reduce
                     (fn [acc [idx row]]
-                      (assert (not (every? nil? (-> row (select-keys pks) vals))) nil-pks-err)
-                      (build acc schema idx row))
+                      (build acc schema' idx row))
                     {}
                     (map-indexed (fn [idx v] [idx v]) (as-vec data)))]
-      (transform schema mapping))))
+      (transform schema' mapping))))
 
 (s/fdef decompose
   :args (s/cat ::schema (s/or :map map? :coll sequential?))
