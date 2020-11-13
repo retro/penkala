@@ -3,21 +3,21 @@
             [clojure.spec.alpha :as s]
             [com.verybigthings.penkala.util.decompose :as d]))
 
-(s/check-asserts true)
 
 (deftest it-should-return-nil-if-given-empty-data-and-schema
   (is (nil? (d/decompose {} []))))
 
 (deftest it-should-collapse-simple-tree-structures
-  (is (= [{:id 1 :val "p1" :children [{:id 11 :val "c1"} {:id 12 :val "c2"}]}]
-        (d/decompose
-          {:pk :parent_id
-           :columns {:parent_id :id
-                     :parent_val :val
-                     :children {:pk :children_id
-                                :columns {:children_id :id :children_val :val}}}}
-          [{:parent_id 1 :parent_val "p1" :children_id 11 :children_val "c1"}
-           {:parent_id 1 :parent_val "p1" :children_id 12 :children_val "c2"}]))))
+  (let [data [{:parent_id 1 :parent_val "p1" :children_id 11 :children_val "c1"}
+              {:parent_id 1 :parent_val "p1" :children_id 12 :children_val "c2"}]]
+    (is (= [{:id 1 :val "p1" :children [{:id 11 :val "c1"} {:id 12 :val "c2"}]}]
+          (d/decompose
+            {:pk :parent_id
+             :columns {:parent_id :id
+                       :parent_val :val
+                       :children {:pk :children_id
+                                  :columns {:children_id :id :children_val :val}}}}
+            data)))))
 
 (deftest it-should-handle-objects
   (is (= [{:id 1 :val "p1" :children [{:id 11 :val "c1"}]}]

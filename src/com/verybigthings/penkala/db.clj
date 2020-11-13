@@ -88,3 +88,6 @@
     (->> (jdbc/execute! db-spec sqlvec default-next-jdbc-options)
       (r/decompose-results relation')
       first)))
+
+(defn execute! [db-spec sqlvec]
+  (jdbc/execute! db-spec sqlvec default-next-jdbc-options))
