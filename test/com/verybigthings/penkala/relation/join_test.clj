@@ -6,7 +6,7 @@
 
 (use-fixtures :once (partial th/reset-db-fixture "foreign-keys"))
 
-(deftest it-joins-a-relation-with-a-type-and-keys
+#_(deftest it-joins-a-relation-with-a-type-and-keys
   (let [alpha (:relation/alpha *db*)
         beta (:relation/beta *db*)
         alpha-beta (r/inner-join alpha :beta beta {:alpha_id :id})
@@ -17,7 +17,7 @@
                     {:id 4 :alpha_id 3 :j nil :val "alpha three again"}]}]
           res))))
 
-(deftest it-joins-multiple-tables-at-multiple-levels
+#_(deftest it-joins-multiple-tables-at-multiple-levels
   (let [alpha (:relation/alpha *db*)
         beta (:relation/beta *db*)
         gamma (:relation/gamma *db*)

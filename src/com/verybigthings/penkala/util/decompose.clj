@@ -45,7 +45,7 @@
                                 (fn [acc k v]
                                   (if (map? v)
                                     (assoc-in acc [:schemas (rename k)] (process-schema v))
-                                    (assoc-in acc [:renames k] (rename v))))
+                                    (assoc-in acc [:renames (rename k)] v)))
                                 schema
                                 columns))]
     (if (map? columns)
@@ -68,8 +68,8 @@
 (defn assoc-columns [acc renames row]
   (reduce-kv
     (fn [acc' k v]
-      (if (contains? row k)
-        (assoc acc' v (get row k))
+      (if (contains? row v)
+        (assoc acc' k (get row v))
         acc'))
     acc
     renames))
@@ -91,6 +91,7 @@
         is-composite-pk (< 1 (count pk))
         id (if is-composite-pk (mapv #(get row %) pk) (get row (first pk)))
         {:keys [renames schemas]} schema]
+    ;; TODO: What about right joins?
     (if (or (and is-composite-pk (every? nil? id))
           (and (not is-composite-pk) (nil? id)))
       acc
@@ -101,8 +102,6 @@
         (assoc acc id current)))))
 
 (defn transform [schema mapping]
-  (println "---" mapping)
-
   (let [decompose-to (get schema :decompose-to :coll)
         schemas (:schemas schema)
         transformed (reduce-kv
@@ -125,6 +124,7 @@
                             (= :indexed-by-pk decompose-to)
                             (assoc acc k transformed)
 
+                            ;; decompose to :map and :parent should just return the map
                             :else
                             transformed)))
                       (if (= :coll decompose-to) [] {})
@@ -168,7 +168,7 @@
          decompose-to (or (:decompose-to overrides) :coll)
          columns (reduce
                    (fn [acc col-name]
-                     (assoc acc (get-prefixed-col-name path-prefix col-name) col-name))
+                     (assoc acc col-name (get-prefixed-col-name path-prefix col-name)))
                    {}
                    (:projection relation))
          columns-with-joined (reduce-kv

@@ -273,5 +273,6 @@
     ;;(println (prettify-sql (first (sel/format-query {} products-orders-users {}))))
     ;;(println (first (sel/format-query {} products-orders-users {})))
     (decompose (infer-schema products-orders-users) (execute! db-uri (sel/format-query {} products-orders-users {})))
+    (clojure.pprint/pprint (execute! db-uri (sel/format-query {} products-orders-users {})))
     (clojure.pprint/pprint (decompose (infer-schema products-orders-users) (execute! db-uri (sel/format-query {} products-orders-users {}))))
     (is false)))

@@ -13,10 +13,10 @@
     (is (= [{:id 1 :val "p1" :children [{:id 11 :val "c1"} {:id 12 :val "c2"}]}]
           (d/decompose
             {:pk :parent_id
-             :columns {:parent_id :id
-                       :parent_val :val
+             :columns {:id :parent_id
+                       :val :parent_val
                        :children {:pk :children_id
-                                  :columns {:children_id :id :children_val :val}}}}
+                                  :columns {:id :children_id :val :children_val}}}}
             data)))))
 
 (deftest it-should-collapse-simple-tree-structures-ns
@@ -26,11 +26,11 @@
           (d/decompose
             {:pk :parent_id
              :namespace :parent
-             :columns {:parent_id :id
-                       :parent_val :val
+             :columns {:id :parent_id
+                       :val :parent_val
                        :children {:pk :children_id
                                   :namespace :child
-                                  :columns {:children_id :id :children_val :val}}}}
+                                  :columns {:id :children_id :val :children_val}}}}
             data)))))
 
 (deftest it-should-decompose-to-parent
@@ -39,42 +39,81 @@
           (d/decompose
             {:pk :parent_id
              :namespace :parent
-             :columns {:parent_id :id
-                       :parent_val :val
+             :columns {:id :parent_id
+                       :val :parent_val
                        :children {:pk :children_id
                                   :decompose-to :parent
                                   :namespace :child
-                                  :columns {:children_id :id :children_val :val}}}}
+                                  :columns {:id :children_id :val :children_val}}}}
             data)))))
 
 (deftest it-should-handle-objects
   (is (= [{:id 1 :val "p1" :children [{:id 11 :val "c1"}]}]
         (d/decompose
           {:pk :parent_id
-           :columns {:parent_id :id
-                     :parent_val :val
+           :columns {:id :parent_id
+                     :val :parent_val
                      :children {:pk :children_id
-                                :columns {:children_id :id :children_val :val}}}}
+                                :columns {:id :children_id :val :children_val}}}}
           {:parent_id 1 :parent_val "p1" :children_id 11 :children_val "c1"}))))
+
+(deftest it-should-be-able-to-decompose-to-parent-nested-joins
+  (let [data   [{:id 1 :username "retro"
+                 :friendships__id 1
+                 :friendships__source_id 1
+                 :friendships__target_id 2
+                 :friendships__target__id 2
+                 :friendships__target__username "tiborkr"}
+                {:id 1 :username "retro"
+                 :friendships__id 1
+                 :friendships__source_id 1
+                 :friendships__target_id 3
+                 :friendships__target__id 3
+                 :friendships__target__username "dpoljak"}]
+        schema {:pk :id
+                :namespace :users
+                :decompose-to :map
+                :columns {:id :id
+                          :username :username
+                          :friendships {:pk [:friendships__source_id :friendships__target_id]
+                                        :namespace :friendships
+                                        :columns {:source_id :friendships__source_id
+                                                  :target_id :friendships__target_id
+                                                  :target {:pk :friendships__target__id
+                                                          :namespace :users
+                                                          :decompose-to :parent
+                                                          :columns {:id :friendships__target__id
+                                                                    :username :friendships__target__username}}}}}}]
+    (is (= {:users/id 1
+            :users/username "retro"
+            :users/friendships [{:friendships/source_id 1
+                                 :friendships/target_id 2
+                                 :users/id 2
+                                 :users/username "tiborkr"}
+                                {:friendships/source_id 1
+                                 :friendships/target_id 3
+                                 :users/id 3
+                                 :users/username "dpoljak"}]}
+          (d/decompose schema data)))))
 
 (deftest it-should-decompose-partial-results
   (is (= [{:id 1 :children [{:id 11}]}]
         (d/decompose
           {:pk :parent_id
-           :columns {:parent_id :id
-                     :parent_val :val
+           :columns {:id :parent_id
+                     :val :parent_val
                      :children {:pk :children_id
-                                :columns {:children_id :id :children_val :val}}}}
+                                :columns {:id :children_id :val :children_val}}}}
           {:parent_id 1 :children_id 11}))))
 
 (deftest it-should-handle-vector-fields
   (is (= [{:id 1 :arr ["one" "two"] :children [{:id 11 :arr ["three" "four"]}]}]
         (d/decompose
           {:pk :parent_id
-           :columns {:parent_id :id
-                     :parent_arr :arr
+           :columns {:id :parent_id
+                     :arr :parent_arr
                      :children {:pk :children_id
-                                :columns {:children_id :id :children_arr :arr}}}}
+                                :columns {:id :children_id :arr :children_arr}}}}
           {:parent_id 1
            :parent_arr ["one" "two"]
            :children_id 11
@@ -99,12 +138,12 @@
            :children2 [{:id 21 :val "d1"} {:id 22 :val "d2"} {:id 23 :val "d3"}]}]
         (d/decompose
           {:pk :parent_id
-           :columns {:parent_id :id
-                     :parent_val :val
+           :columns {:id :parent_id
+                     :val :parent_val
                      :children1 {:pk :children1_id
-                                 :columns {:children1_id :id :children1_val :val}}
+                                 :columns {:id :children1_id :val :children1_val}}
                      :children2 {:pk :children2_id
-                                 :columns {:children2_id :id :children2_val :val}}}}
+                                 :columns {:id :children2_id :val :children2_val}}}}
           [{:parent_id 1 :parent_val "p1" :children1_id 11 :children1_val "c1" :children2_id 21 :children2_val "d1"}
            {:parent_id 1 :parent_val "p1" :children1_id 12 :children1_val "c2" :children2_id 22 :children2_val "d2"}
            {:parent_id 1 :parent_val "p1" :children1_id 12 :children1_val "c2" :children2_id 23 :children2_val "d3"}]))))
@@ -121,14 +160,14 @@
                                     {:id 23 :val "d3"}]}]}]
         (d/decompose
           {:pk :parent_id
-           :columns {:parent_id :id
-                     :parent_val :val
+           :columns {:id :parent_id
+                     :val :parent_val
                      :children1 {:pk :children1_id
-                                 :columns {:children1_id :id
-                                           :children1_val :val
+                                 :columns {:id :children1_id
+                                           :val :children1_val
                                            :children2 {:pk :children1_children2_id
-                                                       :columns {:children1_children2_id :id
-                                                                 :children1_children2_val :val}}}}}}
+                                                       :columns {:id :children1_children2_id
+                                                                 :val :children1_children2_val}}}}}}
           [{:parent_id 1 :parent_val "p1" :children1_id 11 :children1_val "c1" :children1_children2_id 21 :children1_children2_val "d1"}
            {:parent_id 1 :parent_val "p1" :children1_id 12 :children1_val "c2" :children1_children2_id 22 :children1_children2_val "d2"}
            {:parent_id 1 :parent_val "p1" :children1_id 12 :children1_val "c2" :children1_children2_id 23 :children1_children2_val "d3"}]))))
@@ -137,15 +176,15 @@
   (is (= [{:id 1 :val "p1" :child {:id 11 :val "c1" :grandchild {:id 111 :val "g1"}}}]
         (d/decompose
           {:pk :parent_id
-           :columns {:parent_id :id
-                     :parent_val :val
+           :columns {:id :parent_id
+                     :val :parent_val
                      :child {:pk :child_id
                              :decompose-to :map
-                             :columns {:child_id :id
-                                       :child_val :val
+                             :columns {:id :child_id
+                                       :val :child_val
                                        :grandchild {:pk :grandchild_id
-                                                    :columns {:grandchild_id :id
-                                                              :grandchild_val :val}
+                                                    :columns {:id :grandchild_id
+                                                              :val :grandchild_val}
                                                     :decompose-to :map}}}}}
           {:parent_id 1 :parent_val "p1" :child_id 11 :child_val "c1" :grandchild_id 111 :grandchild_val "g1"}))))
 
@@ -153,15 +192,15 @@
   (is (= [{:id 1 :val "p1" :child {11 {:id 11 :val "c1" :grandchild {111 {:id 111 :val "g1"}}}}}]
         (d/decompose
           {:pk :parent_id
-           :columns {:parent_id :id
-                     :parent_val :val
+           :columns {:id :parent_id
+                     :val :parent_val
                      :child {:pk :child_id
                              :decompose-to :indexed-by-pk
-                             :columns {:child_id :id
-                                       :child_val :val
+                             :columns {:id :child_id
+                                       :val :child_val
                                        :grandchild {:pk :grandchild_id
-                                                    :columns {:grandchild_id :id
-                                                              :grandchild_val :val}
+                                                    :columns {:id :grandchild_id
+                                                              :val :grandchild_val}
                                                     :decompose-to :indexed-by-pk}}}}}
           {:parent_id 1 :parent_val "p1" :child_id 11 :child_val "c1" :grandchild_id 111 :grandchild_val "g1"}))))
 
@@ -169,15 +208,15 @@
   (is (= [{:id 1 :val "p1" :child {11 {:child_id 11 :child_val "c1" :grandchild {111 {:id 111 :val "g1"}}}}}]
         (d/decompose
           {:pk :parent_id
-           :columns {:parent_id :id
-                     :parent_val :val
+           :columns {:id :parent_id
+                     :val :parent_val
                      :child {:pk :child_id
                              :decompose-to :indexed-by-pk
                              :columns [:child_id
                                        :child_val
                                        {:grandchild {:pk :grandchild_id
-                                                     :columns {:grandchild_id :id
-                                                               :grandchild_val :val}
+                                                     :columns {:id :grandchild_id
+                                                               :val :grandchild_val}
                                                      :decompose-to :indexed-by-pk}}]}}}
           {:parent_id 1 :parent_val "p1" :child_id 11 :child_val "c1" :grandchild_id 111 :grandchild_val "g1"}))))
 
@@ -185,11 +224,11 @@
   (is (= [{:id 1 :val "p1" :children [{:child_id 11 :val "c1"} {:child_id 12 :val "c2"}]}]
         (d/decompose
           {:pk :parent_id
-           :columns {:parent_id :id
-                     :parent_val :val
+           :columns {:id :parent_id
+                     :val :parent_val
                      :children {:pk :children_child_id
-                                :columns {:children_child_id :child_id
-                                          :children_val :val}}}}
+                                :columns {:child_id :children_child_id
+                                          :val :children_val}}}}
           [{:parent_id 1 :parent_val "p1" :children_child_id 11 :children_val "c1"}
            {:parent_id 1 :parent_val "p1" :children_child_id 12 :children_val "c2"}
            {:parent_id 1 :parent_val "p1" :children_child_id 12 :children_val "c2"}]))))
@@ -221,35 +260,35 @@
              :type 1}]}]
         (d/decompose
           {:pk :this_id,
-           :columns {:this_id :id,
-                     :this_name :name,
-                     :this_notes :notes,
-                     :this_archived :archived
-                     :account {:pk :account_id,
+           :columns {:id :this_id
+                     :name :this_name
+                     :notes :this_notes
+                     :archived :this_archived
+                     :account {:pk :account_id
                                :decompose-to :map
-                               :columns {:account_id :id}}
+                               :columns {:id :account_id}}
                      :contact {:pk :this_id
                                :decompose-to :map
-                               :columns {:contact_email :email
-                                         :contact_phone :phone}}
+                               :columns {:email :contact_email
+                                         :phone :contact_phone}}
                      :address {:pk :this_id
                                :decompose-to :map
-                               :columns {:address_number :number
-                                         :address_street :street
-                                         :address_complement :complement
-                                         :address_neighborhood :neighborhood
-                                         :address_city :city
-                                         :address_state :state
-                                         :address_zipCode :zipCode
+                               :columns {:number :address_number
+                                         :street :address_street
+                                         :complement :address_complement
+                                         :neighborhood :address_neighborhood
+                                         :city :address_city
+                                         :state :address_state
+                                         :zipCode :address_zipCode
                                          :coords {:pk :this_id
                                                   :decompose-to :map
-                                                  :columns {:address_coords_latitude :latitude
-                                                            :address_coords_longitude :longitude}}}}
+                                                  :columns {:latitude :address_coords_latitude
+                                                            :longitude :address_coords_longitude}}}}
                      :labels {:pk :labels_id
-                              :columns {:labels_id :id
-                                        :labels_name :name
-                                        :labels_color :color
-                                        :labels_type :type}}}}
+                              :columns {:id :labels_id
+                                        :name :labels_name
+                                        :color :labels_color
+                                        :type :labels_type}}}}
           [{:address_state "Sao Paulo",
             :this_archived false,
             :contact_email "email",
@@ -320,17 +359,17 @@
              [{:id_one 27, :id_two 28, :val "d4"}]}]}]
         (d/decompose
           {:pk [:parent_id_one :id_one :parent_id_two :parent_id_two]
-           :columns {:parent_id_one :id_one
-                     :parent_id_two :id_two
-                     :parent_val :val
+           :columns {:id_one :parent_id_one
+                     :id_two :parent_id_two
+                     :val :parent_val
                      :children1 {:pk [:children1_id_one :children1_id_two]
-                                 :columns {:children1_id_one :id_one
-                                           :children1_id_two :id_two
-                                           :children1_val :val
+                                 :columns {:id_one :children1_id_one
+                                           :id_two :children1_id_two
+                                           :val :children1_val
                                            :children2 {:pk [:children1_children2_id_one :children1_children2_id_two]
-                                                       :columns {:children1_children2_id_one :id_one
-                                                                 :children1_children2_id_two :id_two
-                                                                 :children1_children2_val :val}}}}}}
+                                                       :columns {:id_one :children1_children2_id_one
+                                                                 :id_two :children1_children2_id_two
+                                                                 :val :children1_children2_val}}}}}}
           [{:children1_children2_id_one 21,
             :children1_id_two 12,
             :children1_id_one 11,
