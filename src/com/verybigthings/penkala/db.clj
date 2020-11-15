@@ -8,10 +8,12 @@
             [com.verybigthings.penkala.next-jdbc]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.util.core :refer [select-keys-with-default]]
-            [com.verybigthings.penkala.statement.select :as select])
+            [com.verybigthings.penkala.util.decompose :as d]
+            [com.verybigthings.penkala.env :as env])
   (:import [com.github.vertical_blank.sqlformatter SqlFormatter]))
 
 (def default-next-jdbc-options {:builder-fn rs/as-unqualified-lower-maps})
+(def get-env-next-jdbc-options {:builder-fn rs/as-unqualified-kebab-maps})
 
 (def internal-db-scripts
   (->> [(h/map-of-db-fns "com/verybigthings/penkala/db_scripts/document-table.sql")
@@ -22,8 +24,7 @@
         (h/map-of-db-fns "com/verybigthings/penkala/db_scripts/views.sql")]
     (apply merge)))
 
-
-(def hugsql-adapter (next-adapter/hugsql-adapter-next-jdbc))
+(def hugsql-adapter (next-adapter/hugsql-adapter-next-jdbc get-env-next-jdbc-options))
 
 (defn exec-internal-db-script
   ([db-spec db-script-name] (exec-internal-db-script db-spec db-script-name {}))
@@ -31,29 +32,23 @@
    (let [db-script-fn (get-in internal-db-scripts [db-script-name :fn])]
      (db-script-fn db-spec params {:quoting :ansi :adapter hugsql-adapter}))))
 
-(defn register-relations [db relations]
+(defn with-relations [env relations]
   (reduce
-    (fn [db' r-spec]
-      (let [r        (r/make-relation db' r-spec)
-            r-schema (:db/schema r)
-            k-ns     (if (= (:db/schema db) r-schema) "relation" (str r-schema ".relation"))
-            k        (keyword k-ns (-> r :relation/name ->kebab-case))]
-        (assoc db' k r)))
-    db
+    (fn [acc rel-spec]
+      (let [rel        (r/spec->relation rel-spec)
+            rel-schema (get-in rel [:spec :schema])
+            rel-name   (-> rel (get-in [:spec :name]) ->kebab-case)
+            rel-ns     (when-not (= (::env/schema env) rel-schema) (->kebab-case rel-schema))
+            rel-key    (if rel-ns (keyword rel-ns rel-name) (keyword rel-name))]
+        (assoc acc rel-key rel)))
+    env
     relations))
 
-(defn assert-server-version [server-version]
-  (let [major (-> server-version (str/split #"\.") first Integer/parseInt)]
-    (assert (>= major 12) "com.verybigthings/penkala requires PostgreSQL version 12 or bigger.")))
-
-(defn inspect
-  ([db-spec] (inspect db-spec {}))
+(defn get-env
+  ([db-spec] (get-env db-spec {}))
   ([db-spec config]
-   (let [current-schema (-> (jdbc/execute-one! db-spec ["SELECT current_schema"] default-next-jdbc-options) :current_schema)
-         server-version (-> (jdbc/execute-one! db-spec ["SHOW server_version"] default-next-jdbc-options) :server_version)
-         db {:db/schema current-schema
-             :db/spec db-spec}]
-     (assert-server-version server-version)
+   (let [current-schema (-> (jdbc/execute-one! db-spec ["SELECT current_schema"] get-env-next-jdbc-options) :current-schema)
+         server-version (-> (jdbc/execute-one! db-spec ["SHOW server_version"] get-env-next-jdbc-options) :server-version)]
      (let [enums     (exec-internal-db-script db-spec :get-enums)
            functions (exec-internal-db-script db-spec :get-functions
                        (select-keys-with-default
@@ -65,29 +60,33 @@
            views     (exec-internal-db-script db-spec :get-views
                        (select-keys-with-default
                          config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))]
-       (clojure.pprint/pprint tables)
-       (-> db
-         (register-relations (concat tables views)))))))
+      (-> {}
+         (env/with-current-schema current-schema)
+         (env/with-db db-spec)
+         (with-relations (concat tables views)))))))
 
 (defn prettify-sql [sql]
   (SqlFormatter/format sql))
 
-(defn query [db-spec db relation]
-  (let [relation' (if (keyword? relation) (get db relation) relation)
-        sqlvec (select/get-query db relation')]
-    (println (prettify-sql (first sqlvec)))
-    (println (rest sqlvec))
-    (->> (jdbc/execute! db-spec sqlvec default-next-jdbc-options)
-      (r/decompose-results relation'))))
+(defn select!
+  ([env relation] (select! env relation {} {}))
+  ([env relation params] (select! env relation params {}))
+  ([env relation params decomposition-schema-overrides]
+   (let [db                   (::env/db env)
+         relation'            (if (keyword? relation) (get env relation) relation)
+         sqlvec               (r/get-select-query relation' env params)
+         decomposition-schema (d/infer-schema relation' decomposition-schema-overrides)]
+     (println (prettify-sql (first sqlvec)))
+     (println (rest sqlvec))
+     (println (first sqlvec))
+     (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
+       (d/decompose decomposition-schema)))))
 
-(defn query-one [db-spec db relation]
-  (let [relation' (if (keyword? relation) (get db relation) relation)
-        sqlvec (select/get-query db (-> relation' (r/limit 1)))]
-    (println (prettify-sql (first sqlvec)))
-    (println (rest sqlvec))
-    (->> (jdbc/execute! db-spec sqlvec default-next-jdbc-options)
-      (r/decompose-results relation')
-      first)))
-
-(defn execute! [db-spec sqlvec]
-  (jdbc/execute! db-spec sqlvec default-next-jdbc-options))
+(defn select-one!
+  ([env relation] (select-one! env relation {} {}))
+  ([env relation params] (select-one! env relation params {}))
+  ([env relation params decomposition-schema-overrides]
+   (let [res (select! env relation params decomposition-schema-overrides)]
+     (if (coll? res)
+       (first res)
+       res))))

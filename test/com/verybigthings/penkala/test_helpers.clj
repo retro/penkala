@@ -5,7 +5,7 @@
             [next.jdbc.result-set :as rs]
             [com.verybigthings.penkala.db :as db]))
 
-(def ^:dynamic *db* {})
+(def ^:dynamic *env* {})
 
 (def db-uri "jdbc:postgresql://localhost:5432/penkala_dev?user=postgres")
 
@@ -18,5 +18,5 @@
 
 (defn reset-db-fixture [db-preset f]
   (reset-db db-preset)
-  (binding [*db* (db/inspect db-uri)]
+  (binding [*env* (db/get-env db-uri)]
     (f)))

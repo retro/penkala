@@ -1,167 +1,807 @@
 (ns com.verybigthings.penkala.relation
-  (:require [com.verybigthings.penkala.util.core :refer [str-quote as-vec]]
-            [clojure.spec.alpha :as s]
-            [com.verybigthings.penkala.util.parse-key :as p]
-            [com.verybigthings.penkala.statement.operations :as o]
-            [com.verybigthings.penkala.util.decompose :as d]
-            [clojure.string :as str]))
+  (:refer-clojure :exclude [group-by extend distinct])
+  (:require [clojure.spec.alpha :as s]
+            [camel-snake-kebab.core :refer [->kebab-case-keyword ->kebab-case-string]]
+            [clojure.string :as str]
+            [clojure.walk :refer [prewalk]]
+            [com.verybigthings.penkala.util.core :refer [expand-join-path path-prefix-join path-prefix-split joins q]]
+            [com.verybigthings.penkala.statement.select :as sel]
+            [clojure.set :as set]))
 
-(s/def ::criteria-map
-  (s/map-of #(or (string? %) (keyword? %)) any?))
+;; TODO: Track decomposition schema for wrapped relations
 
-(s/def ::or-where
+(defprotocol IRelation
+  (-lock [this lock-type locked-rows])
+  (-join [this join-type join-rel join-alias join-on])
+  (-where [this where-expression])
+  (-or-where [this where-expression])
+  (-having [this having-expression])
+  (-or-having [this having-expression])
+  (-offset [this offset])
+  (-limit [this limit])
+  (-order-by [this orders])
+  (-extend [this col-name extend-expression])
+  (-extend-with-aggregate [this col-name agg-expression])
+  (-extend-with-window [this col-name window-expression partitions orders])
+  (-rename [this prev-col-name next-col-name])
+  (-select [this projection])
+  (-distinct [this distinct-expression])
+  (-only [this is-only])
+  (-union [this other-rel])
+  (-union-all [this other-rel])
+  (-intersect [this other-rel])
+  (-except [this other-rel])
+  (-wrap [this])
+  (-with-parent [this parent]))
+
+(defrecord Wrapped [subject-type subject])
+
+(defn column [subject]
+  (->Wrapped :column subject))
+
+(defn value [subject]
+  (->Wrapped :value subject))
+
+(defn param [subject]
+  (->Wrapped :param subject))
+
+(defn literal [subject]
+  (->Wrapped :literal subject))
+
+(defn unary-operator [subject]
+  (->Wrapped :unary-operator subject))
+
+(defn binary-operator [subject]
+  (->Wrapped :binary-operator subject))
+
+(defn ternary-operator [subject]
+  (->Wrapped :ternary-operator subject))
+
+(defn quoted-literal [subject]
+  (let [subject' (if (keyword? subject) (name subject) subject)]
+    (->Wrapped :literal (str "'" subject' "'"))))
+
+(def match-to-escape-re (re-pattern "[,\\{}\\s\\\\\"]"))
+(def escape-re (re-pattern "([\\\\\"])"))
+
+(defn array-literal [value]
+  (let [sanitized-values
+        (map
+          (fn [v]
+            (cond
+              (nil? v)
+              "null"
+
+              (or (= "" v) (= "null" v) (and (string? v) (re-find match-to-escape-re v)))
+              (-> v (str/replace escape-re "$1") q)
+
+              :else v))
+          value)]
+    (quoted-literal (str "{" (str/join "," sanitized-values) "}"))))
+
+(def l literal)
+(def ql quoted-literal)
+
+(defn ex-info-missing-column [rel node]
+  (let [column-name (if (keyword? node) node (:subject node))]
+    (ex-info (str "Column " column-name " doesn't exist") {:column column-name :rel rel})))
+
+(def operations
+  {:unary #{:is-null :is-not-null
+            :is-true :is-not-true
+            :is-false :is-not-false
+            :is-unknown :is-not-unknown}
+   :binary #{:< :> :<= :>= := :<> :!=
+             :is-distinct-from :is-not-distinct-from
+             :like :ilike :not-like :not-ilike
+             :similar-to :not-similar-to
+             "~" "~*" "!~" "!~*" "->" "->>" "#>" "#>>"
+             "@>" "<@" "?" "?|" "||" "-" "#-" "@?" "@@"
+             "&&" "+" "*" "/" "#" "@-@" "##" "<->" ">>"
+             "<<" "&<" "&>" "<<|" "|>>" "&<|" "|>&" "<^"
+             "^>" "?#" "?-" "?-|" "?||" "~=" "%" "^" "|/"
+             "||/" "!" "!!" "@" "&" "|" "<<=" "=>>" "-|-"}
+   :ternary #{:between :not-between
+              :between-symmetric :not-between-symmetric}})
+
+(def all-operations
+  (set/union (:unary operations) (:binary operations) (:ternary operations)))
+
+(s/def ::spec-map map?)
+
+(s/def ::join-type
+  #(contains? joins %))
+
+(s/def ::lock-type
+  #(contains? #{:share :update :no-key-update :key-share} %))
+
+(s/def ::locked-rows
+  #(contains? #{:nowait :skip-locked} %))
+
+(s/def ::connective
   (s/and
     vector?
     (s/cat
-      :or #(= :or %)
-      :elements (s/+ ::where))))
+      :op #(contains? #{:and :or} %)
+      :args (s/+ ::value-expression))))
 
-(s/def ::and-where
+(s/def ::negation
   (s/and
     vector?
     (s/cat
-      :and #(= :and %)
-      :elements (s/+ ::where))))
+      :op #(= :not %)
+      :arg1 ::value-expression)))
 
-(s/def ::where
+(s/def ::unary-operation
+  (s/and
+    vector?
+    (s/cat
+      :op (s/or
+            :operator #(contains? (:unary operations) %)
+            :wrapped-operator #(and (= Wrapped (type %)) (= :unary-operator (:subject-type %))))
+      :arg1 ::value-expression)))
+
+(s/def ::binary-operation
+  (s/and
+    vector?
+    (s/cat
+      :op (s/or
+            :operator #(contains? (:binary operations) %)
+            :wrapped-operator #(and (= Wrapped (type %)) (= :binary-operator (:subject-type %))))
+      :arg1 ::value-expression
+      :arg2 ::value-expression)))
+
+(s/def ::ternary-operation
+  (s/and
+    vector?
+    (s/cat
+      :op (s/or
+            :operator #(contains? (:ternary operations) %)
+            :wrapped-operator #(and (= Wrapped (type %)) (= :ternary-operator (:subject-type %))))
+      :arg1 ::value-expression
+      :arg2 ::value-expression
+      :arg3 ::value-expression)))
+
+(s/def ::inclusion-operation
+  (s/and
+    vector?
+    (s/cat
+      :op #(contains? #{:in :not-in} %)
+      :column ::value-expression
+      :in (s/or
+            :relation ::relation
+            :value-expressions (s/coll-of ::value-expression)))))
+
+(s/def ::cast
+  (s/and
+    vector?
+    (s/cat
+      :fn #(= :cast %)
+      :value ::value-expression
+      :cast-type string?)))
+
+(s/def ::function-call
+  (s/and
+    vector?
+    (s/cat
+      :fn #(and (keyword? %) (not (contains? all-operations %)))
+      :args (s/+ ::value-expression))))
+
+(s/def ::parent-scope
+  (s/and
+    vector?
+    (s/cat
+      :op #(= :parent-scope %)
+      :args (s/+ ::value-expression))))
+
+(s/def ::fragment-literal
+  (s/and
+    vector?
+    (s/cat
+      :op #(= :fragment %)
+      :fragment-literal string?
+      :args (s/+ ::value-expression))))
+
+(s/def ::fragment-fn
+  (s/and
+    vector?
+    (s/cat
+      :op #(= :fragment %)
+      :fragment-fn fn?
+      :args (s/+ ::value-expression))))
+
+(s/def ::relation
+  #(satisfies? IRelation %))
+
+(s/def ::wrapped-column
+  #(and (= Wrapped (type %)) (= :column (:subject-type %))))
+
+(s/def ::wrapped-value
+  #(and (= Wrapped (type %)) (= :value (:subject-type %))))
+
+(s/def ::wrapped-param
+  #(and (= Wrapped (type %)) (= :param (:subject-type %))))
+
+(s/def ::wrapped-literal
+  #(and (= Wrapped (type %)) (= :literal (:subject-type %))))
+
+(s/def ::column-identifier
   (s/or
-    :criteria-map ::criteria-map
-    :or-where ::or-where
-    :and-where ::and-where))
+    :keyword keyword?
+    :wrapped-column ::wrapped-column))
 
-;; Keys in spec will come without namespaces
-(defn make-relation [db spec]
-  (let [current-schema (:db/schema db)
-        entity-schema  (:schema spec)
-        entity-name    (:name spec)
-        path           (or (:path spec)
-                         (if (= current-schema entity-schema) entity-name (str entity-schema "." entity-name)))
-        schema         (or entity-schema current-schema)
-        delimited-name (str-quote entity-name)
-        delimited-schema (str-quote schema)
-        delimited-full-name (if (= schema current-schema) delimited-name (str delimited-schema "." delimited-name))
-        column-names (set (:columns spec))
-        columns (mapv (fn [c] {:column/schema schema
-                               :column/parent entity-name
-                               :column/name c
-                               :column/full-name (str delimited-full-name "." c)})
-                  column-names)]
-    {:db/schema schema
-     :db.schema/current current-schema
-     :relation/name entity-name
-     :relation/loader (:loader spec)
-     :relation/delimited-name delimited-name
-     :relation/delimited-schema delimited-schema
-     :relation/delimited-full-name delimited-full-name
-     :relation/path path
-     :relation/is-mat-view (boolean (:is_matview spec))
-     :relation/column-names column-names
-     :relation/columns columns
-     :relation/pk (when-let [pk (:pk spec)] (as-vec pk))
-     :relation/fks (set (:fks spec))}))
+(s/def ::order-direction
+  #(contains? #{:asc :desc} %))
 
-(defn get-column-name [db-config relation column-name]
-  (let [db-schema (:db/schema db-config)
-        relation-schema (:db/schema relation)
-        relation-name (:relation/name relation)
-        relation-alias (:relation/alias relation)]
+(s/def ::order-nulls
+  #(contains? #{:nulls-first :nulls-last} %))
+
+(s/def ::order
+  (s/or
+    :column-identifier ::column-identifier
+    :column (s/cat
+              :column-identifier ::column-identifier)
+    :column-direction (s/cat
+                        :column-identifier ::column-identifier
+                        :order-direction ::order-direction)
+    :column-direction-nulls (s/cat
+                              :column-identifier ::column-identifier
+                              :order-direction ::order-direction
+                              :order-nulls ::order-nulls)))
+
+(s/def ::orders
+  (s/coll-of ::order))
+
+(s/def ::value-expression
+  (s/or
+    :boolean boolean?
+    :keyword keyword?
+    :relation ::relation
+    :connective ::connective
+    :negation ::negation
+    :unary-operation ::unary-operation
+    :binary-operation ::binary-operation
+    :ternary-operation ::ternary-operation
+    :inclusion-operation ::inclusion-operation
+    :parent-scope ::parent-scope
+    :fragment-fn ::fragment-fn
+    :fragment-literal ::fragment-literal
+    :cast ::cast
+    :function-call ::function-call
+    :wrapped-literal ::wrapped-literal
+    :wrapped-column ::wrapped-column
+    :wrapped-param ::wrapped-param
+    :wrapped-value ::wrapped-value
+    :value any?))
+
+(s/def ::column-list
+  (s/coll-of ::column-identifier))
+
+(defn resolve-column [rel node]
+  (let [column           (if (keyword? node) node (:subject node))
+        column-ns        (namespace column)
+        column-join-path (when (seq column-ns) (str/split column-ns #"\."))
+        column-name (name column)]
+    (if (seq column-join-path)
+      (let [column-join-path' (map keyword column-join-path)
+            column-rel (get-in rel (expand-join-path column-join-path'))
+            id (get-in column-rel [:aliases->ids (keyword column-name)])]
+        (when id
+          {:path column-join-path' :id id :name column-name :original column}))
+      (when-let [id (get-in rel [:aliases->ids (keyword column-name)])]
+        {:id id :name column-name :original column}))))
+
+(defn extract-operator [[op-type operator]]
+  (let [extracted-operator (if (= :operator op-type) operator (:subject operator))]
+    (if (= :!= extracted-operator)
+      :<>
+      extracted-operator)))
+
+(defn process-value-expression [rel node]
+  (let [[node-type args] node]
+    (case node-type
+      :wrapped-column
+      (let [column (resolve-column rel args)]
+        (when (nil? column)
+          (throw (ex-info-missing-column rel node)))
+        [:resolved-column column])
+
+      :wrapped-value
+      [:value (:subject args)]
+
+      :wrapped-param
+      [:param (:subject args)]
+
+      :wrapped-literal
+      [:literal (:subject args)]
+
+      :keyword
+      (let [column (resolve-column rel args)]
+        (if column
+          [:resolved-column column]
+          node))
+
+      (:connective :function-call :fragment-literal :fragment-fn)
+      (update-in node [1 :args] (fn [args] (mapv #(process-value-expression rel %) args)))
+
+      :negation
+      (update-in node [1 :arg1] #(process-value-expression rel %))
+
+      :cast
+      (update-in node [1 :value] #(process-value-expression rel %))
+
+      :unary-operation
+      (-> node
+        (update-in [1 :op] extract-operator)
+        (update-in [1 :arg1] #(process-value-expression rel %)))
+
+      :binary-operation
+      (-> node
+        (update-in [1 :op] extract-operator)
+        (update-in [1 :arg1] #(process-value-expression rel %))
+        (update-in [1 :arg2] #(process-value-expression rel %)))
+
+      :ternary-operation
+      (-> node
+        (update-in [1 :op] extract-operator)
+        (update-in [1 :arg1] #(process-value-expression rel %))
+        (update-in [1 :arg2] #(process-value-expression rel %))
+        (update-in [1 :arg3] #(process-value-expression rel %)))
+
+      :parent-scope
+      (let [parent (:parent rel)]
+        (when (nil? parent)
+          (throw (ex-info "Parent scope doesn't exist" {:relation rel})))
+        (update-in node [1 :args] (fn [args] (mapv #(process-value-expression (:parent rel) %) args))))
+
+      :inclusion-operation
+      (let [in (get-in node [1 :in])
+            in' (if (= :value-expressions (first in))
+                  (update in 1 (fn [args] (mapv #(process-value-expression rel %) args)))
+                  in)]
+        (-> node
+          (update-in [1 :column] #(process-value-expression rel %))
+          (assoc-in [1 :in] in')))
+
+      node)))
+
+(defn process-projection [rel node-list]
+  (reduce
+    (fn [acc [_ node]]
+      (let [column (resolve-column rel node)]
+        (if (or (nil? column) (-> column :path seq))
+          (throw (ex-info-missing-column rel node))
+          (conj acc (if (keyword? node) node (:subject node))))))
+    #{}
+    node-list))
+
+(defn process-orders [rel orders]
+  (map
+    (fn [[node-type node]]
+      (let [node' (if (= :column-identifier node-type) {:column-identifier node} node)
+            column-identifier (-> node' :column-identifier second)
+            column (resolve-column rel column-identifier)]
+        (when (nil? column)
+          (throw (ex-info-missing-column rel column-identifier)))
+        (assoc node' :column [:resolved-column column])))
+    orders))
+
+(defn resolve-columns [rel columns]
+  (reduce
+    (fn [acc [_ node]]
+      (let [column (resolve-column rel node)]
+        (if (or (nil? column))
+          (throw (ex-info-missing-column rel node))
+          (conj acc [:resolved-column column]))))
+    []
+    columns))
+
+(defn and-predicate [rel predicate-type predicate-expression]
+  (s/assert ::value-expression predicate-expression)
+  (let [prev-predicate      (get rel predicate-type)
+        processed-predicate (process-value-expression rel (s/conform ::value-expression predicate-expression))]
+    (if prev-predicate
+      (assoc rel predicate-type [:connective {:op :and :args [prev-predicate processed-predicate]}])
+      (assoc rel predicate-type processed-predicate))))
+
+(defn or-predicate [rel predicate-type predicate-expression]
+  (s/assert ::value-expression predicate-expression)
+  (if-let [prev-predicate (get rel predicate-type)]
+    (let [processed-predicate (process-value-expression rel (s/conform ::value-expression predicate-expression))]
+      (assoc rel predicate-type [:connective {:op :or :args [prev-predicate processed-predicate]}]))
+    (and-predicate rel predicate-type predicate-expression)))
+
+(defn get-projected-columns
+  ([rel] (get-projected-columns #{} rel []))
+  ([acc rel path-prefix]
+   (let [acc'
+         (reduce
+           (fn [acc col]
+             (conj acc (path-prefix-join (map name (conj path-prefix col)))))
+           acc
+           (:projection rel))]
+     (reduce-kv
+       (fn [acc join-alias join]
+         (get-projected-columns acc (:relation join) (conj path-prefix join-alias)))
+       acc'
+       (:joins rel)))))
+
+(defn get-select-query
+  ([rel env]
+   (sel/format-query-without-params-resolution env rel))
+  ([rel env params]
+   (sel/format-query env rel params)))
+
+(defn make-combined-relations-spec [operator rel1 rel2]
+  (let [rel1-cols (get-projected-columns rel1)
+        rel2-cols (get-projected-columns rel2)]
+    (when (not= rel1-cols rel2-cols)
+      (throw (ex-info (str operator " requires projected columns to match.") {:left-relation rel1 :right-relation rel2})))
+    (let [rel-name (str (gensym "rel_"))
+          query (fn [env]
+                  (let [[query1 & params1] (get-select-query rel1 env)
+                        [query2 & params2] (get-select-query rel2 env)]
+                    (vec (concat [(str query1 " " operator " " query2)] params1 params2))))]
+      {:name rel-name
+       :columns rel1-cols
+       :query query})))
+
+(declare spec->relation)
+
+(defrecord Relation [spec]
+  IRelation
+  (-lock [this lock-type locked-rows]
+    (assoc this :lock {:type lock-type :rows locked-rows}))
+  (-join [this join-type join-rel join-alias join-on]
+    (let [join-rel' (if (contains? #{:left-lateral :right-lateral} join-type)
+                      (assoc join-rel :parent this)
+                      join-rel)
+          with-join (assoc-in this [:joins join-alias] {:relation join-rel' :type join-type})
+          join-on' (process-value-expression with-join (s/conform ::value-expression join-on))]
+      (assoc-in with-join [:joins join-alias :on] join-on')))
+  (-where [this where-expression]
+    (and-predicate this :where where-expression))
+  (-or-where [this where-expression]
+    (or-predicate this :where where-expression))
+  (-having [this having-expression]
+    (and-predicate this :having having-expression))
+  (-or-having [this having-expression]
+    (or-predicate this :having having-expression))
+  (-rename [this prev-col-name next-col-name]
+    (let [id (get-in this [:aliases->ids prev-col-name])]
+      (when (nil? id)
+        (throw (ex-info-missing-column this prev-col-name)))
+      (let [this' (-> this
+                    (assoc-in [:ids->aliases id] next-col-name)
+                    (update :aliases->ids #(-> % (dissoc prev-col-name) (assoc next-col-name id))))]
+        (if (contains? (:projection this') prev-col-name)
+          (update this' :projection #(-> % (disj prev-col-name) (conj next-col-name)))
+          this'))))
+  (-extend [this col-name extend-expression]
+    (when (contains? (:aliases->ids this) col-name)
+      (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
+    (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-expression))
+          id (keyword (gensym "column-"))]
+      (-> this
+        (assoc-in [:columns id] {:type :computed
+                                 :value-expression processed-extend})
+        (assoc-in [:ids->aliases id] col-name)
+        (assoc-in [:aliases->ids col-name] id)
+        (update :projection conj col-name))))
+  (-extend-with-aggregate [this col-name agg-expression]
+    (when (contains? (:aliases->ids this) col-name)
+      (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
+    (let [processed-agg (process-value-expression this [:function-call (s/conform ::function-call agg-expression)])
+          id (keyword (gensym "column-"))]
+      (-> this
+        (assoc-in [:columns id] {:type :aggregate
+                                 :value-expression processed-agg})
+        (assoc-in [:ids->aliases id] col-name)
+        (assoc-in [:aliases->ids col-name] id)
+        (update :projection conj col-name))))
+  (-extend-with-window [this col-name window-expression partitions orders]
+    (when (contains? (:aliases->ids this) col-name)
+      (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
+    (let [processed-window (process-value-expression this [:function-call (s/conform ::function-call window-expression)])
+          processed-partitions (when partitions (resolve-columns this (s/conform ::column-list partitions)))
+          processed-orders (when orders (process-orders this (s/conform ::orders orders)))
+          id (keyword (gensym "column-"))]
+      (-> this
+        (assoc-in [:columns id] {:type :window
+                                 :value-expression processed-window
+                                 :partition-by processed-partitions
+                                 :order-by processed-orders})
+        (assoc-in [:ids->aliases id] col-name)
+        (assoc-in [:aliases->ids col-name] id)
+        (update :projection conj col-name))))
+  (-select [this projection]
+    (let [processed-projection (process-projection this (s/conform ::column-list projection))]
+      (assoc this :projection processed-projection)))
+  (-only [this is-only]
+    (assoc this :only is-only))
+  (-distinct [this distinct-expression]
     (cond
-      relation-alias (str (str-quote relation-alias) "." (str-quote column-name))
-      (= db-schema relation-schema) (str (str-quote relation-name) "." (str-quote column-name))
-      :else (str (str-quote relation-schema) "." (str-quote relation-name) "." (str-quote column-name)))))
+      (boolean? distinct-expression)
+      (assoc this :distinct distinct-expression)
+      :else
+      (let [processed-distinct (resolve-columns this (s/conform ::column-list distinct-expression))]
+        (assoc this :distinct processed-distinct))))
+  (-order-by [this orders]
+    (let [processed-orders (process-orders this (s/conform ::orders orders))]
+      (assoc this :order-by processed-orders)))
+  (-offset [this offset]
+    (assoc this :offset offset))
+  (-limit [this limit]
+    (assoc this :limit limit))
+  (-union [this other-rel]
+    (spec->relation (make-combined-relations-spec "UNION" this other-rel)))
+  (-union-all [this other-rel]
+    (spec->relation (make-combined-relations-spec "UNION ALL" this other-rel)))
+  (-intersect [this other-rel]
+    (spec->relation (make-combined-relations-spec "INTERSECT" this other-rel)))
+  (-except [this other-rel]
+    (spec->relation (make-combined-relations-spec "EXCEPT" this other-rel)))
+  (-wrap [this]
+    {:name (str (gensym "rel_"))
+     :columns (get-projected-columns this)
+     :query #(get-select-query this %)})
+  (-with-parent [this parent-rel]
+    (assoc this :parent parent-rel)))
 
-(defn get-column-alias [relation column-name]
-  (let [relation-alias (:relation/alias relation)]
-    (if relation-alias
-      (str-quote (str relation-alias "__" column-name))
-      (str-quote column-name))))
+(defn lock
+  ([rel lock-type]
+   (-lock rel lock-type nil))
+  ([rel lock-type locked-rows]
+   (-lock rel lock-type locked-rows)))
 
-(defn compile-predicate
-  ([relation predicate] (compile-predicate relation predicate nil))
-  ([relation predicate join-key]
-   (cond
-     (map? predicate)
-     (let [p-acc (reduce-kv
-                   (fn [p-acc k v]
-                     (let [lhs-relation (if join-key (get-in relation [:relation/joins join-key]) relation)
-                           parsed-v (when (or (string? v) (keyword? v)) (p/parse-key relation (name v)))
-                           parsed-k (p/with-appendix lhs-relation (name k) o/operations v)]
-                       (if (contains? (:relation/column-names relation) (:query/field parsed-v))
-                         (conj p-acc (-> parsed-k
-                                       (update :relation/alias #(or % (:relation/alias lhs-relation)))
-                                       (assoc :value/field parsed-v)))
-                         (conj p-acc parsed-k))))
-                   []
-                   predicate)]
-       (cond
-         (= 1 (count p-acc)) (first p-acc)
-         (seq p-acc) (into [:and] p-acc)
-         :else nil))
+(s/fdef lock
+  :args (s/cat
+          :rel ::relation
+          :lock-type ::lock-type
+          :locked-rows (s/? ::locked-rows))
+  :ret ::relation)
 
-     (vector? predicate)
-     (let [[op & predicates] predicate
-           p-acc (reduce
-                   (fn [p-acc v]
-                     (let [compiled (compile-predicate relation v)]
-                       (if compiled
-                         (conj p-acc compiled)
-                         p-acc)))
-                   []
-                   predicates)]
-       (cond
-         (= 1 (count p-acc)) (first p-acc)
-         (seq p-acc) (into [op] p-acc)
-         :else nil))
-     :else nil)))
+(defn join [rel join-type join-rel join-alias join-on]
+  (-join rel join-type join-rel join-alias join-on))
 
-;; TODO literal wrapper
-(defn literal [val])
+(s/fdef join
+  :args (s/cat
+          :rel ::relation
+          :join-type ::join-type
+          :join-rel ::relation
+          :join-alias keyword?
+          :join-on ::value-expression)
+  :ret ::relation)
 
-(defn where [relation restriction]
-  (s/assert ::where restriction)
-  (assoc relation :query/where (compile-predicate relation restriction)))
+(defn where [rel where-expression]
+  (-where rel where-expression))
 
-#_(defn and-where [relation restriction]
-  (s/assert ::where restriction)
-  (assoc relation :query/where [:and (:query/where relation)]))
+(s/fdef where
+  :args (s/cat
+          :rel ::relation
+          :where-expression ::value-expression)
+  :ret ::relation)
 
-#_(defn or-where [relation restriction]
-  (s/assert ::where restriction)
-  (assoc relation :query/where [:or (:query/where relation)]))
+(defn or-where [rel where-expression]
+  (-or-where rel where-expression))
 
-(defn limit [relation limit]
-  (assoc relation :query/limit limit))
+(s/fdef or-where
+  :args (s/cat
+          :rel ::relation
+          :where-expression ::value-expression)
+  :ret ::relation)
 
-(defn get-join-alias [join-key]
-  (let [join-key-name (name join-key)]
-    (-> join-key-name (str/split #"\.") last)))
+(defn having [rel having-expression]
+  (-having rel having-expression))
 
-(defn inner-join [relation join-key join-relation join-restriction]
-  (s/assert ::where join-restriction)
-  (let [join-alias     (get-join-alias join-key)
-        join-relation' (assoc join-relation :relation/alias join-alias :join/kind :inner)
-        relation' (assoc-in relation [:relation/joins join-alias] join-relation')]
-    (assoc-in relation' [:relation/joins join-alias :join/on] (compile-predicate relation' join-restriction join-alias))))
+(s/fdef having
+  :args (s/cat
+          :rel ::relation
+          :having-expression ::value-expression)
+  :ret ::relation)
 
-(defn get-decomposition-schema
-  ([relation] (get-decomposition-schema relation ""))
-  ([relation prefix]
-   (let [pk (mapv (fn [c-name] (keyword (if (seq prefix) (str prefix "__" c-name) c-name))) (:relation/pk relation))
-         cols-schema (reduce
-                       (fn [acc c-name]
-                         (let [full-c-name (if (seq prefix) (str prefix "__" c-name) c-name)]
-                           (assoc acc (keyword full-c-name) (keyword c-name))))
-                       {}
-                       (:relation/column-names relation))
-         joins-schema (reduce-kv
-                        (fn [acc j-key j]
-                          (assoc acc (keyword j-key) (get-decomposition-schema j j-key;;(if (seq prefix) (str prefix "__" (name j-key)) (name j-key))
-                                                       )))
-                        {}
-                        (:relation/joins relation))]
-     {:pk pk
-      :columns (merge cols-schema joins-schema)})))
+(defn or-having [rel having-expression]
+  (-or-having rel having-expression))
 
-(defn decompose-results [relation results]
-  (let [decomposition-schema (get-decomposition-schema relation)]
-    (d/decompose decomposition-schema results)))
+(s/fdef or-having
+  :args (s/cat
+          :rel ::relation
+          :having-expression ::value-expression)
+  :ret ::relation)
+
+(defn offset [rel offset]
+  (-offset rel offset))
+
+(s/fdef offset
+  :args (s/cat
+          :rel ::relation
+          :offset int?)
+  :ret ::relation)
+
+(defn limit [rel limit]
+  (-limit rel limit))
+
+(s/fdef limit
+  :args (s/cat
+          :rel ::relation
+          :limit int?)
+  :ret ::relation)
+
+(defn order-by [rel orders]
+  (-order-by rel orders))
+
+(s/fdef order-by
+  :args (s/cat
+          :rel ::relation
+          :orders ::orders)
+  :ret ::relation)
+
+(defn extend [rel col-name extend-expression]
+  (-extend rel col-name extend-expression))
+
+(s/fdef extend
+  :args (s/cat
+          :rel ::relation
+          :col-name keyword?
+          :extend-expression ::value-expression)
+  :ret ::relation)
+
+(defn extend-with-aggregate [rel col-name agg-expression]
+  (-extend-with-aggregate rel col-name agg-expression))
+
+(s/fdef extend-with-aggregate
+  :args (s/cat
+          :rel ::relation
+          :col-name keyword?
+          :agg-expression ::function-call)
+  :ret ::relation)
+
+(defn extend-with-window
+  ([rel col-name window-expression]
+   (-extend-with-window rel col-name window-expression nil nil))
+  ([rel col-name window-expression partitions]
+   (-extend-with-window rel col-name window-expression partitions nil))
+  ([rel col-name window-expression partitions orders]
+   (-extend-with-window rel col-name window-expression partitions orders)))
+
+(s/fdef extend-with-aggregate
+  :args (s/cat
+          :rel ::relation
+          :col-name keyword?
+          :window-expression ::function-call
+          :partitions (s/? ::column-list)
+          :orders (s/? ::orders))
+  :ret ::relation)
+
+(defn rename [rel prev-col-name next-col-name]
+  (-rename rel prev-col-name next-col-name))
+
+(s/fdef rename
+  :args (s/cat
+          :rel ::relation
+          :prev-col-name keyword?
+          :next-col-name keyword?)
+  :ret ::relation)
+
+(defn select [rel projection]
+  (-select rel projection))
+
+(s/fdef select
+  :args (s/cat
+          :rel ::relation
+          :projection ::column-list)
+  :ret ::relation)
+
+(defn distinct
+  ([rel]
+   (-distinct rel true))
+  ([rel distinct-expression]
+   (-distinct rel distinct-expression)))
+
+(s/fdef distinct
+  :args (s/cat
+          :rel ::relation
+          :distinct-expression (s/or
+                                 :boolean boolean?
+                                 :distinct-expression ::column-list))
+  :ret ::relation)
+
+(defn only
+  ([rel]
+   (-only rel true))
+  ([rel is-only]
+   (-only rel is-only)))
+
+(s/fdef only
+  :args (s/cat
+          :rel ::relation
+          :is-only (s/? boolean?))
+  :ret ::relation)
+
+(defn union [rel other-rel]
+  (-union rel other-rel))
+
+(s/fdef union
+  :args (s/cat
+          :rel ::relation
+          :other-rel ::relation)
+  :ret ::relation)
+
+(defn union-all [rel other-rel]
+  (-union-all rel other-rel))
+
+(s/fdef union-all
+  :args (s/cat
+          :rel ::relation
+          :other-rel ::relation)
+  :ret ::relation)
+
+(defn intersect [rel other-rel]
+  (-intersect rel other-rel))
+
+(s/fdef intersect
+  :args (s/cat
+          :rel ::relation
+          :other-rel ::relation)
+  :ret ::relation)
+
+(defn except [rel other-rel]
+  (-except rel other-rel))
+
+(s/fdef except
+  :args (s/cat
+          :rel ::relation
+          :other-rel ::relation)
+  :ret ::relation)
+
+(defn wrap [rel]
+  (-wrap rel))
+
+(s/fdef wrap
+  :args (s/cat :rel ::relation)
+  :ret ::relation)
+
+(defn with-parent [rel parent]
+  (-with-parent rel parent))
+
+(s/fdef with-parent
+  :args (s/cat :rel ::relation)
+  :ret ::relation)
+
+(defn with-default-columns [rel]
+  (let [columns (get-in rel [:spec :columns])]
+    (reduce
+      (fn [acc col]
+        (let [id (keyword (gensym "column-"))
+              alias (->> col
+                      path-prefix-split
+                      (map ->kebab-case-string)
+                      path-prefix-join
+                      keyword)]
+          (-> acc
+            (assoc-in [:columns id] {:type :concrete :name col})
+            (assoc-in [:ids->aliases id] alias)
+            (assoc-in [:aliases->ids alias] id))))
+      rel
+      columns)))
+
+(s/fdef with-default-columns
+  :args (s/cat :rel ::relation)
+  :ret ::relation)
+
+(defn with-default-projection [rel]
+  (assoc rel :projection (set (keys (:aliases->ids rel)))))
+
+(s/fdef with-default-projection
+  :args (s/cat :rel ::relation)
+  :ret ::relation)
+
+(defn spec->relation [spec]
+  (-> (->Relation (assoc spec :namespace (->kebab-case-string (:name spec))))
+    (with-default-columns)
+    (with-default-projection)))
+
+(s/fdef spec->relation
+  :args (s/cat :spec-map ::spec-map)
+  :ret ::relation)
+

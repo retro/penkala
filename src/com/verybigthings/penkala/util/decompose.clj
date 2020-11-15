@@ -91,15 +91,11 @@
         is-composite-pk (< 1 (count pk))
         id (if is-composite-pk (mapv #(get row %) pk) (get row (first pk)))
         {:keys [renames schemas]} schema]
-    ;; TODO: What about right joins?
-    (if (or (and is-composite-pk (every? nil? id))
-          (and (not is-composite-pk) (nil? id)))
-      acc
-      (let [current (-> (get acc id {})
-                      (vary-meta update ::idx #(or % idx))
-                      (assoc-columns renames row)
-                      (assoc-descendants schemas idx row))]
-        (assoc acc id current)))))
+    (let [current (-> (get acc id {})
+                    (vary-meta update ::idx #(or % idx))
+                    (assoc-columns renames row)
+                    (assoc-descendants schemas idx row))]
+      (assoc acc id current))))
 
 (defn transform [schema mapping]
   (let [decompose-to (get schema :decompose-to :coll)
