@@ -4,11 +4,12 @@
             [camel-snake-kebab.core :refer [->kebab-case-keyword ->kebab-case-string]]
             [clojure.string :as str]
             [clojure.walk :refer [prewalk]]
-            [com.verybigthings.penkala.util.core :refer [expand-join-path path-prefix-join path-prefix-split joins q]]
+            [com.verybigthings.penkala.util.core :refer [expand-join-path path-prefix-join path-prefix-split joins q as-vec]]
             [com.verybigthings.penkala.statement.select :as sel]
             [clojure.set :as set]))
 
 ;; TODO: Track decomposition schema for wrapped relations
+;; TODO: keyset pagination
 
 (defprotocol IRelation
   (-lock [this lock-type locked-rows])
@@ -768,16 +769,19 @@
   :args (s/cat :rel ::relation)
   :ret ::relation)
 
+(defn col->alias [col]
+  (->> col
+    path-prefix-split
+    (map ->kebab-case-string)
+    path-prefix-join
+    keyword))
+
 (defn with-default-columns [rel]
   (let [columns (get-in rel [:spec :columns])]
     (reduce
       (fn [acc col]
         (let [id (keyword (gensym "column-"))
-              alias (->> col
-                      path-prefix-split
-                      (map ->kebab-case-string)
-                      path-prefix-join
-                      keyword)]
+              alias (col->alias col)]
           (-> acc
             (assoc-in [:columns id] {:type :concrete :name col})
             (assoc-in [:ids->aliases id] alias)
@@ -796,10 +800,35 @@
   :args (s/cat :rel ::relation)
   :ret ::relation)
 
+(defn with-default-pk [rel]
+  (let [pk (as-vec (get-in rel [:spec :pk]))
+        pk-aliases (map col->alias pk)]
+    (assoc rel :pk (mapv #(get-in rel [:aliases->ids %]) pk-aliases))))
+
+(s/fdef with-default-pk
+  :args (s/cat :rel ::relation)
+  :ret ::relation)
+
+(defn with-pk [rel pk-cols]
+  (let [pk (reduce
+             (fn [acc col]
+               (let [col-id (get-in rel [:aliases->ids col])]
+                 (if col-id
+                   (conj acc col-id)
+                   (throw (ex-info-missing-column rel col)))))
+             []
+              pk-cols)]
+    (assoc rel :pk pk)))
+
+(s/fdef with-pk
+  :args (s/cat :rel ::relation :pk (s/coll-of keyword? :kind vector?))
+  :ret ::relation)
+
 (defn spec->relation [spec]
   (-> (->Relation (assoc spec :namespace (->kebab-case-string (:name spec))))
     (with-default-columns)
-    (with-default-projection)))
+    (with-default-projection)
+    (with-default-pk)))
 
 (s/fdef spec->relation
   :args (s/cat :spec-map ::spec-map)

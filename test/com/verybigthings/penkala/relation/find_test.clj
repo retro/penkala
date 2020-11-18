@@ -263,6 +263,28 @@
             {:products/id 4 :products/price 40.00M :products/sum-so-far 111.00M}]
           res))))
 
+(deftest it-can-query-views
+  (let [res (select! *env* :popular-products)]
+    (is (= 3 (count res)))))
+
+(deftest it-can-restrict-columns-when-querying-views
+  (let [res (select-one! *env* (-> *env* :popular-products
+                                 (r/select [:id :price])))]
+    (is (= #{:popular-products/id :popular-products/price} (set (keys res))))))
+
+(deftest it-can-override-namespace-in-decomposition
+  (let [res (select-one! *env* (-> *env* :popular-products
+                                 (r/select [:id :price])) {} {:namespace :products})]
+    (is (= #{:products/id :products/price} (set (keys res))))))
+
+(deftest it-can-apply-predicates-when-querying-views
+  (let [res (select! *env* (-> *env* :popular-products (r/where [:> :price 30.0])))]
+    (is (= 1 (count res)))))
+
+(deftest it-can-query-materialized-views
+  (let [res (select! *env* :mv-orders)]
+    (is (= 3 (count res)))))
+
 #_(def db-spec
     [{:schema "public",
       :is_insertable_into true,

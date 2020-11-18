@@ -32,7 +32,8 @@
     ks))
 
 (defn as-vec [val]
-  (if (sequential? val) (vec val) [val]))
+  (when val
+    (if (sequential? val) (vec val) [val])))
 
 (defn expand-join-path [path]
   (mapcat (fn [v] [:joins (keyword v) :relation]) path))
