@@ -148,3 +148,29 @@
      (if (coll? res)
        (first res)
        res))))
+
+(comment
+  (def users-spec {:name "users"
+                   :columns ["id" "username" "is_admin"]
+                   :pk ["id"]
+                   :schema "public"})
+  (def users-rel (r/spec->relation users-spec))
+  (r/get-select-query users-rel {})
+
+  (def admins-rel (r/where users-rel [:is-true :is-admin]))
+  (r/get-select-query admins-rel {})
+
+  (def posts-spec {:name "posts"
+                   :columns ["id" "user_id" "body"]
+                   :pk ["id"]
+                   :schema "public"})
+
+  (def posts-rel (r/spec->relation posts-spec))
+
+  (r/get-select-query (r/where posts-rel [:in :user-id (r/select admins-rel [:id])]) {})
+
+  (r/get-select-query (r/join posts-rel :left admins-rel :author [:= :user-id :author/id]) {})
+
+  (require '[com.verybigthings.penkala.helpers :refer [param]])
+
+  (r/get-select-query (r/where posts-rel [:= :user-id (param :user/id )]) {} {:user/id 1}))
