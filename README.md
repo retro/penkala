@@ -1,18 +1,11 @@
-# penkala
+# Penkala
 
-FIXME: my new library.
+Penkala is a composable query builder for PostgreSQL written in Clojure.
 
 ## Usage
 
-FIXME: write usage documentation!
-
-Build a deployable jar of this library:
-
-    $ clojure -A:jar
-
 ## License
 
-Copyright © 2020 Retro
+Copyright © 2020 Mihael Konjevic (https://verybigthings.com)
 
-Distributed under the Eclipse Public License either version 1.0 or (at
-your option) any later version.
+Distributed under the MIT License.

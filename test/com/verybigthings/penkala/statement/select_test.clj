@@ -1,11 +1,18 @@
 (ns com.verybigthings.penkala.statement.select-test
   (:require [clojure.test :refer :all]
             [com.verybigthings.penkala.relation :as r]
-            [com.verybigthings.penkala.helpers :as h]))
+            [com.verybigthings.penkala.helpers :as h]
+            [com.verybigthings.penkala.env :as env]))
 
 (def rel
   (r/spec->relation {:columns ["id" "name"]
                      :name "foo"
+                     :pk ["id"]}))
+
+(def rel-with-schema
+  (r/spec->relation {:columns ["id" "name"]
+                     :name "foo"
+                     :schema "bar"
                      :pk ["id"]}))
 
 (deftest it-adds-distinct
@@ -44,3 +51,9 @@
                   (r/get-select-query {}))]
     (is (= "SELECT count(1) AS \"count\", \"foo\".\"id\" AS \"id\", \"foo\".\"name\" AS \"name\" FROM \"foo\" AS \"foo\" GROUP BY \"foo\".\"id\", \"foo\".\"name\" HAVING count(1) > 1"
           q))))
+
+(deftest it-renames-schema
+  (let [[q & _] (r/get-select-query rel-with-schema {})]
+    (is (= "SELECT \"foo\".\"id\" AS \"id\", \"foo\".\"name\" AS \"name\" FROM \"bar\".\"foo\" AS \"foo\"" q)))
+  (let [[q & _] (r/get-select-query rel-with-schema (env/with-schema-rename "bar" "qux"))]
+    (is (= "SELECT \"foo\".\"id\" AS \"id\", \"foo\".\"name\" AS \"name\" FROM \"qux\".\"foo\" AS \"foo\"" q))))
