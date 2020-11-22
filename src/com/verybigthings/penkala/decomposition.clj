@@ -140,7 +140,9 @@
         vec)
       transformed)))
 
-(defn decompose [schema data]
+(defn decompose
+  "Decomposes the data based on the schema."
+  [schema data]
   (when (and (seq schema) (seq data))
     (let [schema' (process-schema schema)
           mapping (reduce
@@ -191,6 +193,7 @@
        (:joins relation)))))
 
 (defn infer-schema
+  "Infers the decomposition schema from a relation."
   ([relation] (infer-schema relation nil []))
   ([relation overrides] (infer-schema relation overrides []))
   ([relation overrides path-prefix]

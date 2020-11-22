@@ -101,6 +101,9 @@
     relations))
 
 (defn get-env
+  "Gets the env information from a database. It will list all tables and views and return a map where keys are table
+  names and values are relations. In case of the non-default schemas, namespaced keys will be used, where the namespace
+  will be the schema name."
   ([db-spec] (get-env db-spec {}))
   ([db-spec config]
    (let [current-schema (-> (jdbc/execute-one! db-spec ["SELECT current_schema"] get-env-next-jdbc-options) :current-schema)]
@@ -124,6 +127,7 @@
   (SqlFormatter/format sql))
 
 (defn select!
+  "Selects the results based on the relation and returns them decomposed."
   ([env relation] (select! env relation {} {}))
   ([env relation params] (select! env relation params {}))
   ([env relation params decomposition-schema-overrides]
@@ -135,6 +139,8 @@
        (d/decompose decomposition-schema)))))
 
 (defn select-one!
+  "Selects the results based on the relation and returns the first one decomposed. This will not change the relation by
+  adding a limit"
   ([env relation] (select-one! env relation {} {}))
   ([env relation params] (select-one! env relation params {}))
   ([env relation params decomposition-schema-overrides]

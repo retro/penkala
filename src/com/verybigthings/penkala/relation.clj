@@ -510,7 +510,7 @@
     (assoc this :parent parent-rel)))
 
 (defn lock
-  ""
+  "Lock selected rows"
   ([rel lock-type]
    (-lock rel lock-type nil))
   ([rel lock-type locked-rows]
@@ -523,7 +523,23 @@
           :locked-rows (s/? ::locked-rows))
   :ret ::relation)
 
-(defn join [rel join-type join-rel join-alias join-on]
+(defn join
+  "Joins another relation. Supported join types are:
+
+  - :inner
+  - :inner-lateral
+  - :left
+  - :left-lateral
+  - :right
+  - :full
+  - :cross
+
+  When joining a relation, columns from the joined relation must be referenced with a namespaced key. Key's namespace
+  will be the join alias (e.g. :join-alias/column). If you need to reference a column that's deeply joined, you
+  can use join aliases concatenated with a dot (e.g. :join-alias.another-join-alias/column)
+
+  `join-on` can be any value expression, so you can have as complex join predicates as you need."
+  [rel join-type join-rel join-alias join-on]
   (-join rel join-type join-rel join-alias join-on))
 
 (s/fdef join
@@ -535,7 +551,18 @@
           :join-on ::value-expression)
   :ret ::relation)
 
-(defn where [rel where-expression]
+(defn where
+  "And where operation. If there's already a where clause set, this clause will be joined with AND. Accepts a value
+   expression which can be nested as needed. You can reference a column in a joined relation by using namespaced keys:
+
+   ```
+   (-> beta
+      (r/join :inner alpha :alpha [:= :alpha-id :alpha/id])
+      (r/where [:= :alpha/id 3]))
+   ```
+
+   In this example `:alpha/id` is referencing the `:id` column in the relation joined with the `:alpha` alias."
+  [rel where-expression]
   (-where rel where-expression))
 
 (s/fdef where
@@ -544,7 +571,9 @@
           :where-expression ::value-expression)
   :ret ::relation)
 
-(defn or-where [rel where-expression]
+(defn or-where
+  "Or where operation. If there's already a where clause set, this clause will be joined with OR"
+  [rel where-expression]
   (-or-where rel where-expression))
 
 (s/fdef or-where
@@ -553,7 +582,9 @@
           :where-expression ::value-expression)
   :ret ::relation)
 
-(defn having [rel having-expression]
+(defn having
+  "And having operation. If there's already a having clause set, this clause will be joined with AND"
+  [rel having-expression]
   (-having rel having-expression))
 
 (s/fdef having
@@ -562,7 +593,9 @@
           :having-expression ::value-expression)
   :ret ::relation)
 
-(defn or-having [rel having-expression]
+(defn or-having
+  "Or having operation. If there's already a having clause set, this clause will be joined with OR"
+  [rel having-expression]
   (-or-having rel having-expression))
 
 (s/fdef or-having
@@ -571,7 +604,9 @@
           :having-expression ::value-expression)
   :ret ::relation)
 
-(defn offset [rel offset]
+(defn offset
+  "Sets the offset parameter"
+  [rel offset]
   (-offset rel offset))
 
 (s/fdef offset
@@ -580,7 +615,9 @@
           :offset int?)
   :ret ::relation)
 
-(defn limit [rel limit]
+(defn limit
+  "Sets the limit parameter."
+  [rel limit]
   (-limit rel limit))
 
 (s/fdef limit
@@ -589,7 +626,16 @@
           :limit int?)
   :ret ::relation)
 
-(defn order-by [rel orders]
+(defn order-by
+  "Sets order by clause. It accepts a vector of columns by which the order will be performed. Columns can be either a
+  keyword, or vectors if you need to use descending order or you want to set order for null values:
+
+  - `(order-by rel [:id])`
+  - `(order-by rel [[:id :desc]])`
+  - `(order-by rel [[:id :desc :nulls-first]])`
+
+  You can reference columns in joined relations by using namespaced keys"
+  [rel orders]
   (-order-by rel orders))
 
 (s/fdef order-by
@@ -598,7 +644,27 @@
           :orders ::orders)
   :ret ::relation)
 
-(defn extend [rel col-name extend-expression]
+(defn extend
+  "Extends a relation with a computed column. This column will be automatically selected. Expression can reference
+  previously extended columns by name:
+
+  ```
+  (-> rel
+    (extend :upper-name [:upper :name])
+    (extend :lower-upper-name [:lower :upper-name]))
+  ```
+
+  You can use reference these columns in any other value expression, and Penkala will correctly compile them in the
+  generated SQL.
+
+  ```
+  (-> rel
+    (extend :upper-name [:upper :name])
+    (extend :lower-upper-name [:lower :upper-name])
+    (where [:= :lower-upper-name \"FOO\"]))
+  ```
+  "
+  [rel col-name extend-expression]
   (-extend rel col-name extend-expression))
 
 (s/fdef extend
@@ -608,7 +674,19 @@
           :extend-expression ::value-expression)
   :ret ::relation)
 
-(defn extend-with-aggregate [rel col-name agg-expression]
+(defn extend-with-aggregate
+  "Extends the relation with a computed column that is an aggregate value (e.g. sum, max, min...). Root value expression
+  must be a function. Penkala doesn't have any explicit support for the built in aggregate functions which means you can
+  use whatever your DB supports, including custom aggregate functions.
+
+  If an aggregate column is selected, Penkala will automatically add a GROUP BY clause to the generated SQL.
+
+  ```
+  (extend-with-aggregate rel :count [:count 1])
+  ```
+
+  This column will be automatically selected."
+  [rel col-name agg-expression]
   (-extend-with-aggregate rel col-name agg-expression))
 
 (s/fdef extend-with-aggregate
@@ -619,6 +697,7 @@
   :ret ::relation)
 
 (defn extend-with-window
+  "Extends a relation with a window function column."
   ([rel col-name window-expression]
    (-extend-with-window rel col-name window-expression nil nil))
   ([rel col-name window-expression partitions]
@@ -635,7 +714,15 @@
           :orders (s/? ::orders))
   :ret ::relation)
 
-(defn rename [rel prev-col-name next-col-name]
+(defn rename
+  "Renames a column. If you rename a column, you must use a new name to reference it after that
+
+  ```
+  (-> rel
+    (rename :name :product-name)
+    (where [:= :product-name \"FOO\"]))
+  ```"
+  [rel prev-col-name next-col-name]
   (-rename rel prev-col-name next-col-name))
 
 (s/fdef rename
@@ -645,7 +732,9 @@
           :next-col-name keyword?)
   :ret ::relation)
 
-(defn select [rel projection]
+(defn select
+  "Selects columns from the relation. You can reference any extended columns here."
+  [rel projection]
   (-select rel projection))
 
 (s/fdef select
@@ -655,6 +744,7 @@
   :ret ::relation)
 
 (defn distinct
+  "Adds a distinct or distinct on clause."
   ([rel]
    (-distinct rel true))
   ([rel distinct-expression]
@@ -669,6 +759,7 @@
   :ret ::relation)
 
 (defn only
+  "Adds the only clause to limit the inheritance."
   ([rel]
    (-only rel true))
   ([rel is-only]
@@ -680,7 +771,9 @@
           :is-only (s/? boolean?))
   :ret ::relation)
 
-(defn union [rel other-rel]
+(defn union
+  "Creates a relation that is a combination of two relations with the UNION operator"
+  [rel other-rel]
   (-union rel other-rel))
 
 (s/fdef union
@@ -689,7 +782,9 @@
           :other-rel ::relation)
   :ret ::relation)
 
-(defn union-all [rel other-rel]
+(defn union-all
+  "Creates a relation that is a combination of two relations with the UNION ALL operator"
+  [rel other-rel]
   (-union-all rel other-rel))
 
 (s/fdef union-all
@@ -698,7 +793,9 @@
           :other-rel ::relation)
   :ret ::relation)
 
-(defn intersect [rel other-rel]
+(defn intersect
+  "Creates a relation that is a combination of two relations with the INTERSECT operator"
+  [rel other-rel]
   (-intersect rel other-rel))
 
 (s/fdef intersect
@@ -707,7 +804,9 @@
           :other-rel ::relation)
   :ret ::relation)
 
-(defn except [rel other-rel]
+(defn except
+  "Creates a relation that is a combination of two relations with the EXCEPT operator"
+  [rel other-rel]
   (-except rel other-rel))
 
 (s/fdef except
@@ -716,7 +815,12 @@
           :other-rel ::relation)
   :ret ::relation)
 
-(defn wrap [rel]
+(defn wrap
+  "Wraps a relation, so the original structure is not visible to other relations. Use this in rare cases where you
+  want to force a sub-select wrap around the relation. There are very rare cases when this is needed, but for instance
+  if you want to have a relation that is joined with other relations, and you want to select only one field, you will
+  need to explicitly wrap that relation."
+  [rel]
   (-wrap rel))
 
 (s/fdef wrap
