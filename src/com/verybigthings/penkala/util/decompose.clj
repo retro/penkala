@@ -2,9 +2,12 @@
   (:require [clojure.spec.alpha :as s]
             [com.verybigthings.penkala.util.core :refer [as-vec path-prefix-join]]
             [camel-snake-kebab.core :refer [->kebab-case-string ->kebab-case-keyword]]
-            [clojure.set :as set]))
+            [clojure.set :as set]
+            [clojure.string :as str]))
 
-(s/def ::decompose-to #{:indexed-by-pk :coll :map :parent})
+(defrecord DecompositionSchema [pk decompose-to namespace columns])
+
+(s/def ::decompose-to #{:indexed-by-pk :coll :map :parent :omit})
 
 (s/def ::column-map
   (s/map-of
@@ -165,47 +168,80 @@
       pk-aliases
       (vec (sort projection)))))
 
+(defn infer-flat-schema
+  ([relation path-prefix]
+   (let [columns (infer-flat-schema relation path-prefix {})]
+     (map->DecompositionSchema
+       {:pk (-> (vals columns) sort vec)
+        :namespace false
+        :columns columns
+        :decompose-to :coll})))
+  ([relation path-prefix schema]
+   (let [with-columns (reduce
+                        (fn [acc col-name]
+                          (let [col-ns (when (seq path-prefix) (str/join "." (map name path-prefix)))
+                                col-name' (if col-ns (keyword col-ns (name col-name)) col-name)]
+                            (assoc acc col-name' (get-prefixed-col-name path-prefix col-name))))
+                        schema
+                        (:projection relation))]
+     (reduce-kv
+       (fn [acc alias join]
+         (infer-flat-schema (:relation join) (conj path-prefix alias) acc))
+       with-columns
+       (:joins relation)))))
+
 (defn infer-schema
   ([relation] (infer-schema relation nil []))
   ([relation overrides] (infer-schema relation overrides []))
   ([relation overrides path-prefix]
-   (println overrides)
-   (let [pk                  (->> (or (:pk overrides) (get-rel-pk relation))
-                               as-vec
-                               (mapv #(get-prefixed-col-name path-prefix %)))
-         default-namespace   (:namespace overrides)
-         namespace           (if (nil? default-namespace)
-                               (->kebab-case-string (get-in relation [:spec :name]))
-                               default-namespace)
-         decompose-to        (get overrides :decompose-to :coll)
-         columns             (reduce
-                               (fn [acc col-name]
-                                 (assoc acc col-name (get-prefixed-col-name path-prefix col-name)))
-                               {}
-                               (:projection relation))
-         columns-with-joined (reduce-kv
-                               (fn [acc alias join]
-                                 (let [join-relation  (:relation join)
-                                       join-overrides (get-in overrides [:columns alias])
-                                       join-path      (conj path-prefix alias)
-                                       join-schema    (infer-schema join-relation join-overrides join-path)]
-                                   ;; First we build join schema and then check if this level should be omitted.
-                                   ;; If it should, we still need to pick up any joins on the levels below it.
-                                   ;; This is not super efficient as we'll iterate through some columns multiple
-                                   ;; times, but works until a better way is figured out.
-                                   (if (= :omit (:decompose-to join-schema))
-                                     (let [join-relation-projection (:projection join-relation)]
-                                       (reduce-kv
-                                         (fn [acc' col col-schema]
-                                           (if (contains? join-relation-projection col)
-                                             acc'
-                                             (assoc acc col col-schema)))
-                                         acc
-                                         (:columns join-schema)))
-                                     (assoc acc alias join-schema))))
-                               columns
-                               (:joins relation))]
-     {:pk pk
-      :decompose-to decompose-to
-      :namespace namespace
-      :columns columns-with-joined})))
+   (cond
+     (false? overrides)
+     (infer-flat-schema relation path-prefix)
+
+     (= DecompositionSchema (type overrides))
+     overrides
+
+     :else
+     (let [pk                  (->> (or (:pk overrides) (get-rel-pk relation))
+                                 as-vec
+                                 (mapv #(get-prefixed-col-name path-prefix %)))
+           default-namespace   (:namespace overrides)
+           namespace           (if (nil? default-namespace)
+                                 (->kebab-case-string (get-in relation [:spec :name]))
+                                 default-namespace)
+           decompose-to        (get overrides :decompose-to :coll)
+           columns             (reduce
+                                 (fn [acc col-name]
+                                   (assoc acc col-name (get-prefixed-col-name path-prefix col-name)))
+                                 {}
+                                 (:projection relation))
+           columns-with-joined (reduce-kv
+                                 (fn [acc alias join]
+                                   (let [join-relation  (:relation join)
+                                         join-overrides (get-in overrides [:columns alias])
+                                         join-path      (conj path-prefix alias)
+                                         join-type      (:type join)
+                                         join-schema    (if (contains? #{:left :left-lateral :inner :inner-lateral} join-type)
+                                                          (infer-schema join-relation join-overrides join-path)
+                                                          (infer-flat-schema join-relation join-path))]
+                                     ;; First we build join schema and then check if this level should be omitted.
+                                     ;; If it should, we still need to pick up any joins on the levels below it.
+                                     ;; This is not super efficient as we'll iterate through some columns multiple
+                                     ;; times, but works until a better way is figured out.
+                                     (if (= :omit (:decompose-to join-schema))
+                                       (let [join-relation-projection (:projection join-relation)]
+                                         (reduce-kv
+                                           (fn [acc' col col-schema]
+                                             (if (contains? join-relation-projection col)
+                                               acc'
+                                               (assoc acc col col-schema)))
+                                           acc
+                                           (:columns join-schema)))
+                                       (assoc acc alias join-schema))))
+                                 columns
+                                 (:joins relation))]
+       (map->DecompositionSchema
+         {:pk pk
+          :decompose-to decompose-to
+          :namespace namespace
+          :columns columns-with-joined})))))

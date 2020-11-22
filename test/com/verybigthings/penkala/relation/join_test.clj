@@ -382,3 +382,178 @@
                           {:zeta/id 2, :zeta/val "alpha one again"}]}
             {:alpha/id 3, :alpha/val "three", :alpha/zeta []}]
           res))))
+
+(deftest it-correctly-namespaces-columns-when-not-decomposing-1
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        gamma (:gamma *env*)
+        joined (-> alpha
+                 (r/join
+                   :inner
+                   (r/join beta :inner gamma :gamma [:= :id :gamma/beta-id])
+                   :beta [:= :id :beta/alpha-id])
+                 (r/where [:> :id 1]))
+        res (select! *env* joined {} false)]
+    (is (= [{:id 2,
+             :val "two",
+             :beta/alpha-id 2,
+             :beta/id 2,
+             :beta/j nil,
+             :beta/val "alpha two",
+             :beta.gamma/alpha-id-one 1,
+             :beta.gamma/alpha-id-two 2,
+             :beta.gamma/beta-id 2,
+             :beta.gamma/id 2,
+             :beta.gamma/j nil,
+             :beta.gamma/val "alpha two alpha two beta two"}
+            {:id 2,
+             :val "two",
+             :beta/alpha-id 2,
+             :beta/id 2,
+             :beta/j nil,
+             :beta/val "alpha two",
+             :beta.gamma/alpha-id-one 2,
+             :beta.gamma/alpha-id-two 3,
+             :beta.gamma/beta-id 2,
+             :beta.gamma/id 3,
+             :beta.gamma/j nil,
+             :beta.gamma/val "alpha two alpha three beta two again"}
+            {:id 3,
+             :val "three",
+             :beta/alpha-id 3,
+             :beta/id 3,
+             :beta/j nil,
+             :beta/val "alpha three",
+             :beta.gamma/alpha-id-one 2,
+             :beta.gamma/alpha-id-two nil,
+             :beta.gamma/beta-id 3,
+             :beta.gamma/id 4,
+             :beta.gamma/j nil,
+             :beta.gamma/val "alpha two (alpha null) beta three"}
+            {:id 3,
+             :val "three",
+             :beta/alpha-id 3,
+             :beta/id 4,
+             :beta/j nil,
+             :beta/val "alpha three again",
+             :beta.gamma/alpha-id-one 3,
+             :beta.gamma/alpha-id-two 1,
+             :beta.gamma/beta-id 4,
+             :beta.gamma/id 5,
+             :beta.gamma/j nil,
+             :beta.gamma/val "alpha three alpha one beta four"}]
+          res))))
+
+(deftest it-correctly-namespaces-columns-when-not-decomposing-2
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        gamma (:gamma *env*)
+        joined (-> alpha
+                 (r/join
+                   :inner
+                   (r/join beta :inner gamma :gamma [:= :id :gamma/beta-id])
+                   :beta [:= :id :beta/alpha-id])
+                 (r/where [:> :id 1]))
+        res (select! *env* joined {} {:columns {:beta false}})]
+    (is (= [{:alpha/beta [{:beta/alpha-id 2,
+                           :beta/id 2,
+                           :beta/j nil,
+                           :beta/val "alpha two",
+                           :beta.gamma/alpha-id-one 1,
+                           :beta.gamma/alpha-id-two 2,
+                           :beta.gamma/beta-id 2,
+                           :beta.gamma/id 2,
+                           :beta.gamma/j nil,
+                           :beta.gamma/val "alpha two alpha two beta two"}
+                          {:beta/alpha-id 2,
+                           :beta/id 2,
+                           :beta/j nil,
+                           :beta/val "alpha two",
+                           :beta.gamma/alpha-id-one 2,
+                           :beta.gamma/alpha-id-two 3,
+                           :beta.gamma/beta-id 2,
+                           :beta.gamma/id 3,
+                           :beta.gamma/j nil,
+                           :beta.gamma/val "alpha two alpha three beta two again"}],
+             :alpha/id 2,
+             :alpha/val "two"}
+            {:alpha/beta [{:beta/alpha-id 3,
+                           :beta/id 3,
+                           :beta/j nil,
+                           :beta/val "alpha three",
+                           :beta.gamma/alpha-id-one 2,
+                           :beta.gamma/alpha-id-two nil,
+                           :beta.gamma/beta-id 3,
+                           :beta.gamma/id 4,
+                           :beta.gamma/j nil,
+                           :beta.gamma/val "alpha two (alpha null) beta three"}
+                          {:beta/alpha-id 3,
+                           :beta/id 4,
+                           :beta/j nil,
+                           :beta/val "alpha three again",
+                           :beta.gamma/alpha-id-one 3,
+                           :beta.gamma/alpha-id-two 1,
+                           :beta.gamma/beta-id 4,
+                           :beta.gamma/id 5,
+                           :beta.gamma/j nil,
+                           :beta.gamma/val "alpha three alpha one beta four"}],
+             :alpha/id 3,
+             :alpha/val "three"}]
+          res))))
+
+(deftest it-correctly-namespaces-columns-when-not-using-inner-or-left-join
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        gamma (:gamma *env*)
+        joined (-> alpha
+                 (r/join
+                   :right
+                   (r/join beta :inner gamma :gamma [:= :id :gamma/beta-id])
+                   :beta [:= :id :beta/alpha-id])
+                 (r/where [:> :id 1]))
+        res (select! *env* joined)]
+    (is (= [{:alpha/beta [{:beta/alpha-id 2,
+                           :beta/id 2,
+                           :beta/j nil,
+                           :beta/val "alpha two",
+                           :beta.gamma/alpha-id-one 1,
+                           :beta.gamma/alpha-id-two 2,
+                           :beta.gamma/beta-id 2,
+                           :beta.gamma/id 2,
+                           :beta.gamma/j nil,
+                           :beta.gamma/val "alpha two alpha two beta two"}
+                          {:beta/alpha-id 2,
+                           :beta/id 2,
+                           :beta/j nil,
+                           :beta/val "alpha two",
+                           :beta.gamma/alpha-id-one 2,
+                           :beta.gamma/alpha-id-two 3,
+                           :beta.gamma/beta-id 2,
+                           :beta.gamma/id 3,
+                           :beta.gamma/j nil,
+                           :beta.gamma/val "alpha two alpha three beta two again"}],
+             :alpha/id 2,
+             :alpha/val "two"}
+            {:alpha/beta [{:beta/alpha-id 3,
+                           :beta/id 3,
+                           :beta/j nil,
+                           :beta/val "alpha three",
+                           :beta.gamma/alpha-id-one 2,
+                           :beta.gamma/alpha-id-two nil,
+                           :beta.gamma/beta-id 3,
+                           :beta.gamma/id 4,
+                           :beta.gamma/j nil,
+                           :beta.gamma/val "alpha two (alpha null) beta three"}
+                          {:beta/alpha-id 3,
+                           :beta/id 4,
+                           :beta/j nil,
+                           :beta/val "alpha three again",
+                           :beta.gamma/alpha-id-one 3,
+                           :beta.gamma/alpha-id-two 1,
+                           :beta.gamma/beta-id 4,
+                           :beta.gamma/id 5,
+                           :beta.gamma/j nil,
+                           :beta.gamma/val "alpha three alpha one beta four"}],
+             :alpha/id 3,
+             :alpha/val "three"}]
+          res))))

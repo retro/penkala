@@ -1,4 +1,4 @@
-(ns com.verybigthings.penkala.relation.find-test
+(ns com.verybigthings.penkala.relation.select-test
   (:require [clojure.test :refer :all]
             [com.verybigthings.penkala.db :refer [select! select-one!]]
             [com.verybigthings.penkala.relation :as r]
