@@ -213,6 +213,7 @@ Other libraries I've researched:
 - https://github.com/cdinger/rasql
 - https://github.com/active-group/sqlosure
 - https://clojureql.sabrecms.com/en/welcome
+- https://github.com/tatut/specql
 
 Penkala development is kindly sponsored by [Very Big Things](https://verybigthings.com)
 
