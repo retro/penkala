@@ -1,6 +1,6 @@
 (ns com.verybigthings.penkala.util.decompose
   (:require [clojure.spec.alpha :as s]
-            [com.verybigthings.penkala.util.core :refer [as-vec path-prefix-join]]
+            [com.verybigthings.penkala.util.core :refer [as-vec path-prefix-join col->alias]]
             [camel-snake-kebab.core :refer [->kebab-case-string ->kebab-case-keyword]]
             [clojure.set :as set]
             [clojure.string :as str]))
@@ -155,7 +155,7 @@
   :ret (s/or :map? map? :coll sequential?))
 
 (defn get-prefixed-col-name [path-prefix col-name]
-  (->> (conj path-prefix (->kebab-case-string col-name))
+  (->> (conj path-prefix (col->alias col-name))
     (mapv name)
     path-prefix-join
     keyword))
@@ -164,7 +164,7 @@
   (let [pk-ids (:pk rel)
         pk-aliases (mapv #(get-in rel [:ids->aliases %]) pk-ids)
         projection (:projection rel)]
-    (if (set/subset? projection (set pk-aliases))
+    (if (and (seq pk-aliases) (set/subset? (set pk-aliases) projection))
       pk-aliases
       (vec (sort projection)))))
 
@@ -206,6 +206,7 @@
                                  as-vec
                                  (mapv #(get-prefixed-col-name path-prefix %)))
            default-namespace   (:namespace overrides)
+           _ (println "------------" (:spec relation) (get-in relation [:spec :name]))
            namespace           (if (nil? default-namespace)
                                  (->kebab-case-string (get-in relation [:spec :name]))
                                  default-namespace)

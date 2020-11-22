@@ -439,8 +439,8 @@
 (defn with-lock [acc env rel]
   (let [{:keys [type rows]} (:lock rel)]
     (cond-> acc
-      type (update :query conj (str "FOR " (->SCREAMING_SNAKE_CASE_STRING type)))
-      rows (update :query conj (->SCREAMING_SNAKE_CASE_STRING rows)))))
+      type (update :query conj (str "FOR " (-> type ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))))
+      rows (update :query conj (-> rows ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))))))
 
 (defn with-offset [acc _ rel]
   (if-let [offset (:offset rel)]

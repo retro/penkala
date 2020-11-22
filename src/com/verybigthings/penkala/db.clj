@@ -75,6 +75,7 @@
          relation'            (if (keyword? relation) (get env relation) relation)
          sqlvec               (r/get-select-query relation' env params)
          decomposition-schema (d/infer-schema relation' decomposition-schema-overrides)]
+     (clojure.pprint/pprint decomposition-schema)
      (println (prettify-sql (first sqlvec)))
      (println (rest sqlvec))
      (println (first sqlvec))

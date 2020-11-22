@@ -2,7 +2,8 @@
   (:require [clojure.test :refer :all]
             [com.verybigthings.penkala.db :refer [select!]]
             [com.verybigthings.penkala.relation :as r]
-            [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]))
+            [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
+            [com.verybigthings.penkala.util.decompose :refer [map->DecompositionSchema]]))
 
 (use-fixtures :once (partial th/reset-db-fixture "foreign-keys"))
 
@@ -556,4 +557,157 @@
                            :beta.gamma/val "alpha three alpha one beta four"}],
              :alpha/id 3,
              :alpha/val "three"}]
+          res))))
+
+(deftest it-can-use-manual-decomposition-schema-with-combined-relations-1
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        alpha-beta-1 (-> alpha
+                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/where [:= :id 2]))
+        alpha-beta-2 (-> alpha
+                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/where [:= :id 3]))
+        alpha-beta (r/union alpha-beta-1 alpha-beta-2)
+        res (select! *env* alpha-beta {} (map->DecompositionSchema
+                                           {:pk [:id]
+                                            :decompose-to :coll
+                                            :namespace :alpha
+                                            :schema {:id :id
+                                                     :val :val
+                                                     :beta {:pk [:beta__id]
+                                                            :decompose-to :coll
+                                                            :namespace :beta
+                                                            :schema {:id :beta__id
+                                                                     :j :beta__j
+                                                                     :val :beta__val
+                                                                     :alpha-id :beta__alpha-id}}}}))]
+    (is (= [{:alpha/beta [{:beta/alpha-id 2, :beta/id 2, :beta/j nil, :beta/val "alpha two"}],
+             :alpha/id 2,
+             :alpha/val "two"}
+            {:alpha/beta [{:beta/alpha-id 3, :beta/id 3, :beta/j nil, :beta/val "alpha three"}
+                          {:beta/alpha-id 3, :beta/id 4, :beta/j nil, :beta/val "alpha three again"}],
+             :alpha/id 3,
+             :alpha/val "three"}]
+          res))))
+
+(deftest it-can-use-manual-decomposition-schema-with-combined-relations-2
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        alpha-beta-1 (-> alpha
+                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/where [:= :id 2]))
+        alpha-beta-2 (-> alpha
+                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/where [:= :id 3]))
+        alpha-beta (r/union-all alpha-beta-1 alpha-beta-2)
+        res (select! *env* alpha-beta {} (map->DecompositionSchema
+                                           {:pk [:id]
+                                            :decompose-to :coll
+                                            :namespace :alpha
+                                            :schema {:id :id
+                                                     :val :val
+                                                     :beta {:pk [:beta__id]
+                                                            :decompose-to :coll
+                                                            :namespace :beta
+                                                            :schema {:id :beta__id
+                                                                     :j :beta__j
+                                                                     :val :beta__val
+                                                                     :alpha-id :beta__alpha-id}}}}))]
+    (is (= [{:alpha/beta [{:beta/alpha-id 2, :beta/id 2, :beta/j nil, :beta/val "alpha two"}],
+             :alpha/id 2,
+             :alpha/val "two"}
+            {:alpha/beta [{:beta/alpha-id 3, :beta/id 3, :beta/j nil, :beta/val "alpha three"}
+                          {:beta/alpha-id 3, :beta/id 4, :beta/j nil, :beta/val "alpha three again"}],
+             :alpha/id 3,
+             :alpha/val "three"}]
+          res))))
+
+(deftest it-can-use-manual-decomposition-schema-with-combined-relations-3
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        alpha-beta-1 (-> alpha
+                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/where [:> :id 1]))
+        alpha-beta-2 (-> alpha
+                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/where [:= :id 3]))
+        alpha-beta (r/except alpha-beta-1 alpha-beta-2)
+        res (select! *env* alpha-beta {} (map->DecompositionSchema
+                                           {:pk [:id]
+                                            :decompose-to :coll
+                                            :namespace :alpha
+                                            :schema {:id :id
+                                                     :val :val
+                                                     :beta {:pk [:beta__id]
+                                                            :decompose-to :coll
+                                                            :namespace :beta
+                                                            :schema {:id :beta__id
+                                                                     :j :beta__j
+                                                                     :val :beta__val
+                                                                     :alpha-id :beta__alpha-id}}}}))]
+    (is (= [{:alpha/beta [], :alpha/id 4, :alpha/val "four"}
+            {:alpha/beta [{:beta/alpha-id 2, :beta/id 2, :beta/j nil, :beta/val "alpha two"}],
+             :alpha/id 2,
+             :alpha/val "two"}]
+          res))))
+
+(deftest it-can-use-manual-decomposition-schema-with-combined-relations-4
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        alpha-beta-1 (-> alpha
+                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/where [:> :id 1]))
+        alpha-beta-2 (-> alpha
+                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/where [:= :id 3]))
+        alpha-beta (r/intersect alpha-beta-1 alpha-beta-2)
+        res (select! *env* alpha-beta {} (map->DecompositionSchema
+                                           {:pk [:id]
+                                            :decompose-to :coll
+                                            :namespace :alpha
+                                            :schema {:id :id
+                                                     :val :val
+                                                     :beta {:pk [:beta__id]
+                                                            :decompose-to :coll
+                                                            :namespace :beta
+                                                            :schema {:id :beta__id
+                                                                     :j :beta__j
+                                                                     :val :beta__val
+                                                                     :alpha-id :beta__alpha-id}}}}))]
+    (is (= [
+            {:alpha/beta [{:beta/alpha-id 3, :beta/id 4, :beta/j nil, :beta/val "alpha three again"}
+                          {:beta/alpha-id 3, :beta/id 3, :beta/j nil, :beta/val "alpha three"}],
+             :alpha/id 3,
+             :alpha/val "three"}]
+          res))))
+
+(deftest it-can-use-manual-decomposition-schema-with-manually-wrapped-relations
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        alpha-beta (-> alpha
+                     (r/join :left beta :beta [:= :id :beta/alpha-id])
+                     (r/where [:> :id 1])
+                     (r/wrap))
+        res (select! *env* alpha-beta {} (map->DecompositionSchema
+                                           {:pk [:id]
+                                            :decompose-to :coll
+                                            :namespace :alpha
+                                            :schema {:id :id
+                                                     :val :val
+                                                     :beta {:pk [:beta__id]
+                                                            :decompose-to :coll
+                                                            :namespace :beta
+                                                            :schema {:id :beta__id
+                                                                     :j :beta__j
+                                                                     :val :beta__val
+                                                                     :alpha-id :beta__alpha-id}}}}))]
+    (is (= [{:alpha/beta [{:beta/alpha-id 2, :beta/id 2, :beta/j nil, :beta/val "alpha two"}],
+             :alpha/id 2,
+             :alpha/val "two"}
+            {:alpha/beta [{:beta/alpha-id 3, :beta/id 3, :beta/j nil, :beta/val "alpha three"}
+                          {:beta/alpha-id 3, :beta/id 4, :beta/j nil, :beta/val "alpha three again"}],
+             :alpha/id 3,
+             :alpha/val "three"}
+            {:alpha/beta [], :alpha/id 4, :alpha/val "four"}]
           res))))

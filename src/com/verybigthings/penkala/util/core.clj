@@ -1,5 +1,6 @@
 (ns com.verybigthings.penkala.util.core
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [camel-snake-kebab.core :refer [->kebab-case-string]]))
 
 (def joins
   {:left "LEFT OUTER JOIN"
@@ -39,3 +40,11 @@
   (mapcat (fn [v] [:joins (keyword v) :relation]) path))
 
 (def vec-conj (fnil conj []))
+
+(defn col->alias [col]
+  (->> col
+    name
+    path-prefix-split
+    (map ->kebab-case-string)
+    path-prefix-join
+    keyword))

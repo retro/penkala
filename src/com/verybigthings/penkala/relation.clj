@@ -4,9 +4,11 @@
             [camel-snake-kebab.core :refer [->kebab-case-keyword ->kebab-case-string]]
             [clojure.string :as str]
             [clojure.walk :refer [prewalk]]
-            [com.verybigthings.penkala.util.core :refer [expand-join-path path-prefix-join path-prefix-split joins q as-vec]]
+            [com.verybigthings.penkala.util.core
+             :refer [expand-join-path path-prefix-join path-prefix-split joins q as-vec col->alias]]
             [com.verybigthings.penkala.statement.select :as sel]
-            [clojure.set :as set]))
+            [clojure.set :as set]
+            [com.verybigthings.penkala.util.decompose :as d]))
 
 ;; TODO: Track decomposition schema for wrapped relations
 ;; TODO: keyset pagination
@@ -438,12 +440,17 @@
         rel2-cols (get-projected-columns rel2)]
     (when (not= rel1-cols rel2-cols)
       (throw (ex-info (str operator " requires projected columns to match.") {:left-relation rel1 :right-relation rel2})))
-    (let [rel-name (str (gensym "rel_"))
+    (let [rel1-name (get-in rel1 [:spec :name])
+          rel2-name (get-in rel2 [:spec :name])
+          rel-name (if (= rel1-name rel2-name) rel1-name (str rel1-name "__" rel2-name))
+          rel1-pk (get-in rel1 [:spec :pk])
+          rel2-pk (get-in rel2 [:spec :pk])
           query (fn [env]
                   (let [[query1 & params1] (get-select-query rel1 env)
                         [query2 & params2] (get-select-query rel2 env)]
                     (vec (concat [(str query1 " " operator " " query2)] params1 params2))))]
       {:name rel-name
+       :pk (when (= rel1-pk rel2-pk) rel1-pk)
        :columns rel1-cols
        :query query})))
 
@@ -543,9 +550,10 @@
   (-except [this other-rel]
     (spec->relation (make-combined-relations-spec "EXCEPT" this other-rel)))
   (-wrap [this]
-    {:name (str (gensym "rel_"))
-     :columns (get-projected-columns this)
-     :query #(get-select-query this %)})
+    (spec->relation {:name (get-in this [:spec :name])
+                     :columns (get-projected-columns this)
+                     :query #(get-select-query this %)
+                     :wrapped this}))
   (-with-parent [this parent-rel]
     (assoc this :parent parent-rel)))
 
@@ -769,13 +777,6 @@
   :args (s/cat :rel ::relation)
   :ret ::relation)
 
-(defn col->alias [col]
-  (->> col
-    path-prefix-split
-    (map ->kebab-case-string)
-    path-prefix-join
-    keyword))
-
 (defn with-default-columns [rel]
   (let [columns (get-in rel [:spec :columns])]
     (reduce
@@ -824,8 +825,8 @@
   :args (s/cat :rel ::relation :pk (s/coll-of keyword? :kind vector?))
   :ret ::relation)
 
-(defn spec->relation [spec]
-  (-> (->Relation (assoc spec :namespace (->kebab-case-string (:name spec))))
+(defn spec->relation [spec-map]
+  (-> (->Relation (assoc spec-map :namespace (->kebab-case-string (:name spec-map))))
     (with-default-columns)
     (with-default-projection)
     (with-default-pk)))
