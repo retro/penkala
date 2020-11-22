@@ -221,6 +221,11 @@
                                          join-overrides (get-in overrides [:columns alias])
                                          join-path      (conj path-prefix alias)
                                          join-type      (:type join)
+                                         ;; If we encounter a join that might have nils on the left side
+                                         ;; we switch to the flat decomposition, where we just namespace all columns
+                                         ;; to avoid duplicates. The namespacing behavior is different than the default
+                                         ;; because it's using join alias as a namespace instead of the relation name
+                                         ;; to ensure that joining a same relation multiple times is not overriding values
                                          join-schema    (if (contains? #{:left :left-lateral :inner :inner-lateral} join-type)
                                                           (infer-schema join-relation join-overrides join-path)
                                                           (infer-flat-schema join-relation join-path))]

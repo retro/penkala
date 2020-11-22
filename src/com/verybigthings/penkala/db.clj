@@ -47,13 +47,12 @@
 (defn get-env
   ([db-spec] (get-env db-spec {}))
   ([db-spec config]
-   (let [current-schema (-> (jdbc/execute-one! db-spec ["SELECT current_schema"] get-env-next-jdbc-options) :current-schema)
-         server-version (-> (jdbc/execute-one! db-spec ["SHOW server_version"] get-env-next-jdbc-options) :server-version)]
-     (let [enums     (exec-internal-db-script db-spec :get-enums)
-           functions (exec-internal-db-script db-spec :get-functions
+   (let [current-schema (-> (jdbc/execute-one! db-spec ["SELECT current_schema"] get-env-next-jdbc-options) :current-schema)]
+     (let [#_#_enums     (exec-internal-db-script db-spec :get-enums)
+           #_#_functions (exec-internal-db-script db-spec :get-functions
                        (select-keys-with-default
                          config [:functions/forbidden :functions/allowed :functions/exceptions :schemas/allowed] nil))
-           sequences (exec-internal-db-script db-spec :get-sequences)
+           #_#_sequences (exec-internal-db-script db-spec :get-sequences)
            tables    (exec-internal-db-script db-spec :get-tables
                        (select-keys-with-default
                          config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))
