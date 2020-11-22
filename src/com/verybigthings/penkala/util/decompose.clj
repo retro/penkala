@@ -9,24 +9,24 @@
 
 (s/def ::decompose-to #{:indexed-by-pk :coll :map :parent :omit})
 
-(s/def ::column-map
+(s/def ::schema-map
   (s/map-of
     keyword?
     (s/or
       :keyword keyword?
       :schema ::schema)))
 
-(s/def ::column-vec
+(s/def ::schema-vec
   (s/coll-of
     (s/or
       :keyword keyword?
-      :column-map ::column-map)
+      :schema-map ::schema-map)
     :kind vector?))
 
-(s/def ::columns
+(s/def ::schema
   (s/or
-    :column-map ::column-map
-    :column-vec ::column-vec))
+    :schema-map ::schema-map
+    :schema-vec ::schema-vec))
 
 (s/def ::pk
   (s/or
@@ -35,13 +35,13 @@
 
 (s/def ::schema
   (s/keys
-    :req-un [::pk ::columns]
+    :req-un [::pk ::schema]
     :opt-un [::decompose-to]))
 
 (declare process-schema)
 
 (defn process-schema-columns [schema]
-  (let [columns             (:columns schema)
+  (let [columns             (:schema schema)
         ns-name             (when-let [ns (:namespace schema)] (name ns))
         rename              (if ns-name (fn [k] (keyword ns-name (name k))) identity)
         process-map-columns (fn [schema columns]
@@ -174,7 +174,7 @@
      (map->DecompositionSchema
        {:pk (-> (vals columns) sort vec)
         :namespace false
-        :columns columns
+        :schema columns
         :decompose-to :coll})))
   ([relation path-prefix schema]
    (let [with-columns (reduce
@@ -218,7 +218,7 @@
            columns-with-joined (reduce-kv
                                  (fn [acc alias join]
                                    (let [join-relation  (:relation join)
-                                         join-overrides (get-in overrides [:columns alias])
+                                         join-overrides (get-in overrides [:schema alias])
                                          join-path      (conj path-prefix alias)
                                          join-type      (:type join)
                                          ;; If we encounter a join that might have nils on the left side
@@ -241,7 +241,7 @@
                                                acc'
                                                (assoc acc col col-schema)))
                                            acc
-                                           (:columns join-schema)))
+                                           (:schema join-schema)))
                                        (assoc acc alias join-schema))))
                                  columns
                                  (:joins relation))]
@@ -249,4 +249,4 @@
          {:pk pk
           :decompose-to decompose-to
           :namespace namespace
-          :columns columns-with-joined})))))
+          :schema columns-with-joined})))))

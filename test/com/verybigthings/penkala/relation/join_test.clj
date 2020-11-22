@@ -44,7 +44,7 @@
         alpha-beta-view (-> alpha
                           (r/join :inner beta-view :beta-view [:= :id :beta-view/alpha-id])
                           (r/where [:= :id 3]))
-        res (select! *env* alpha-beta-view {} {:columns {:beta-view {:pk ["id"]}}})]
+        res (select! *env* alpha-beta-view {} {:schema {:beta-view {:pk ["id"]}}})]
     (is (= [#:alpha{:id 3
                     :val "three"
                     :beta-view [#:beta-view{:id 3 :alpha-id 3 :j nil :val "alpha three"}
@@ -357,7 +357,7 @@
                  (r/join :left alpha-zeta :alpha-zeta [:= :id :alpha-zeta/alpha-id])
                  (r/join :left zeta :zeta [:= :alpha-zeta/zeta-id :zeta/id])
                  (r/where [:in :id [1 3]]))
-        res (select! *env* joined {} {:columns {:alpha-zeta {:decompose-to :omit}}})]
+        res (select! *env* joined {} {:schema {:alpha-zeta {:decompose-to :omit}}})]
     (is (= [{:alpha/id 1,
              :alpha/val "one",
              :alpha/zeta [{:zeta/id 1, :zeta/val "alpha one"}
@@ -375,7 +375,7 @@
                      (r/join :left zeta :zeta [:= :zeta-id :zeta/id]))
                    :alpha-zeta [:= :id :alpha-zeta/alpha-id])
                  (r/where [:in :id [1 3]]))
-        res (select! *env* joined {} {:columns {:alpha-zeta {:decompose-to :omit}}})]
+        res (select! *env* joined {} {:schema {:alpha-zeta {:decompose-to :omit}}})]
     (is (= [{:alpha/id 1,
              :alpha/val "one",
              :alpha/zeta [{:zeta/id 1, :zeta/val "alpha one"}
@@ -454,7 +454,7 @@
                    (r/join beta :inner gamma :gamma [:= :id :gamma/beta-id])
                    :beta [:= :id :beta/alpha-id])
                  (r/where [:> :id 1]))
-        res (select! *env* joined {} {:columns {:beta false}})]
+        res (select! *env* joined {} {:schema {:beta false}})]
     (is (= [{:alpha/beta [{:beta/alpha-id 2,
                            :beta/id 2,
                            :beta/j nil,
