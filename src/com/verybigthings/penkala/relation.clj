@@ -4,13 +4,11 @@
             [camel-snake-kebab.core :refer [->kebab-case-keyword ->kebab-case-string]]
             [clojure.string :as str]
             [clojure.walk :refer [prewalk]]
-            [com.verybigthings.penkala.util.core
+            [com.verybigthings.penkala.util
              :refer [expand-join-path path-prefix-join path-prefix-split joins q as-vec col->alias]]
             [com.verybigthings.penkala.statement.select :as sel]
-            [clojure.set :as set]
-            [com.verybigthings.penkala.util.decompose :as d]))
+            [clojure.set :as set]))
 
-;; TODO: Track decomposition schema for wrapped relations
 ;; TODO: keyset pagination
 
 (defprotocol IRelation
@@ -38,52 +36,6 @@
   (-with-parent [this parent]))
 
 (defrecord Wrapped [subject-type subject])
-
-(defn column [subject]
-  (->Wrapped :column subject))
-
-(defn value [subject]
-  (->Wrapped :value subject))
-
-(defn param [subject]
-  (->Wrapped :param subject))
-
-(defn literal [subject]
-  (->Wrapped :literal subject))
-
-(defn unary-operator [subject]
-  (->Wrapped :unary-operator subject))
-
-(defn binary-operator [subject]
-  (->Wrapped :binary-operator subject))
-
-(defn ternary-operator [subject]
-  (->Wrapped :ternary-operator subject))
-
-(defn quoted-literal [subject]
-  (let [subject' (if (keyword? subject) (name subject) subject)]
-    (->Wrapped :literal (str "'" subject' "'"))))
-
-(def match-to-escape-re (re-pattern "[,\\{}\\s\\\\\"]"))
-(def escape-re (re-pattern "([\\\\\"])"))
-
-(defn array-literal [value]
-  (let [sanitized-values
-        (map
-          (fn [v]
-            (cond
-              (nil? v)
-              "null"
-
-              (or (= "" v) (= "null" v) (and (string? v) (re-find match-to-escape-re v)))
-              (-> v (str/replace escape-re "$1") q)
-
-              :else v))
-          value)]
-    (quoted-literal (str "{" (str/join "," sanitized-values) "}"))))
-
-(def l literal)
-(def ql quoted-literal)
 
 (defn ex-info-missing-column [rel node]
   (let [column-name (if (keyword? node) node (:subject node))]
@@ -558,6 +510,7 @@
     (assoc this :parent parent-rel)))
 
 (defn lock
+  ""
   ([rel lock-type]
    (-lock rel lock-type nil))
   ([rel lock-type locked-rows]

@@ -1,4 +1,4 @@
-(ns com.verybigthings.penkala.util.core
+(ns com.verybigthings.penkala.util
   (:require [clojure.string :as str]
             [camel-snake-kebab.core :refer [->kebab-case-string]]))
 

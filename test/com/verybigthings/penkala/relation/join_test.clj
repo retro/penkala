@@ -3,7 +3,7 @@
             [com.verybigthings.penkala.next-jdbc :refer [select!]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
-            [com.verybigthings.penkala.util.decompose :refer [map->DecompositionSchema]]))
+            [com.verybigthings.penkala.decomposition :refer [map->DecompositionSchema]]))
 
 (use-fixtures :once (partial th/reset-db-fixture "foreign-keys"))
 

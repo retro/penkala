@@ -1,6 +1,6 @@
 (ns com.verybigthings.penkala.statement.select
   (:require [clojure.string :as str]
-            [com.verybigthings.penkala.util.core :refer [q expand-join-path path-prefix-join join-separator vec-conj joins]]
+            [com.verybigthings.penkala.util :refer [q expand-join-path path-prefix-join join-separator vec-conj joins]]
             [camel-snake-kebab.core :refer [->SCREAMING_SNAKE_CASE_STRING ->snake_case_string]]
             [com.verybigthings.penkala.env :as env]))
 
@@ -218,7 +218,6 @@
       (update :query  conj (str "CAST(" (str/join " " query) " AS " cast-type ")")))))
 
 (defn compile-order-by [acc env rel order-by]
-  (println order-by)
   (let [{:keys [query params]}
         (reduce
           (fn [acc {:keys [column order-direction order-nulls]}]

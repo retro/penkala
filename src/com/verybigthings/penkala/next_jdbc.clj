@@ -1,14 +1,14 @@
 (ns com.verybigthings.penkala.next-jdbc
-  (:require [next.jdbc.result-set :as rs]
-            [jsonista.core :as j]
-            [hugsql.adapter.next-jdbc :as next-adapter]
-            [hugsql.core :as h]
-            [next.jdbc :as jdbc]
-            [camel-snake-kebab.core :refer [->kebab-case]]
-            [com.verybigthings.penkala.relation :as r]
-            [com.verybigthings.penkala.util.core :refer [select-keys-with-default]]
-            [com.verybigthings.penkala.util.decompose :as d]
-            [com.verybigthings.penkala.env :as env])
+  (:require  [camel-snake-kebab.core :refer [->kebab-case]]
+             [next.jdbc.result-set :as rs]
+             [jsonista.core :as j]
+             [hugsql.adapter.next-jdbc :as next-adapter]
+             [hugsql.core :as h]
+             [next.jdbc :as jdbc]
+             [com.verybigthings.penkala.relation :as r]
+             [com.verybigthings.penkala.util :refer [select-keys-with-default]]
+             [com.verybigthings.penkala.decomposition :as d]
+             [com.verybigthings.penkala.env :as env])
   (:import (org.postgresql.util PGobject)
            (com.github.vertical_blank.sqlformatter SqlFormatter)))
 
