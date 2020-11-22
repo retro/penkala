@@ -1,6 +1,6 @@
 (ns com.verybigthings.penkala.relation.join-test
   (:require [clojure.test :refer :all]
-            [com.verybigthings.penkala.db :refer [select!]]
+            [com.verybigthings.penkala.next-jdbc :refer [select!]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
             [com.verybigthings.penkala.util.decompose :refer [map->DecompositionSchema]]))

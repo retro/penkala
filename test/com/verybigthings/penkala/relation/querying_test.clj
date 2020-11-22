@@ -1,13 +1,9 @@
 (ns com.verybigthings.penkala.relation.querying-test
   (:require [clojure.test :refer :all]
-            [com.verybigthings.penkala.db :refer [select! select-one!]]
+            [com.verybigthings.penkala.next-jdbc :refer [select! select-one!]]
             [com.verybigthings.penkala.relation :as r]
-            [com.verybigthings.penkala.test-helpers :as th :refer [db-uri *env*]]
-            [com.verybigthings.penkala.env :as env]
-            [next.jdbc :as jdbc]
+            [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
             [clojure.spec.alpha :as s]))
-
-(s/check-asserts true)
 
 (use-fixtures :once (partial th/reset-db-fixture "data-all"))
 

@@ -3,7 +3,7 @@
             [next.jdbc :as jdbc]
             [clojure.java.io :as io]
             [next.jdbc.result-set :as rs]
-            [com.verybigthings.penkala.db :as db]))
+            [com.verybigthings.penkala.next-jdbc :refer [get-env]]))
 
 (def ^:dynamic *env* {})
 
@@ -18,5 +18,5 @@
 
 (defn reset-db-fixture [db-preset f]
   (reset-db db-preset)
-  (binding [*env* (db/get-env db-uri)]
+  (binding [*env* (get-env db-uri)]
     (f)))
