@@ -208,6 +208,8 @@ I've spent a lot of time researching other libraries that are doing the similar 
 - [Massive.js](https://massivejs.org/) - Penkala started as a port of this lib, and I'm thankful I was able to study its source code to learn how to approach the architecture. Also, the tests and SQL queries to get the DB structure are copied from the Massive.js codebase.
 - [bmg](https://github.com/enspirit/bmg) - this library helped me to design the API in a way that's composable and reusable
 
+Next.jdbc integration code is taken from Luminus, so I want to thank the Lumius team for that effort.
+
 Other libraries I've researched:
 
 - https://github.com/cdinger/rasql
