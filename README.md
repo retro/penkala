@@ -91,7 +91,7 @@ alias used to join the relation._
 As you can see, Penkala takes care of all the nitty-gritty details around sub-selects, joins and aliasing. Relation API
 functions are implemented, documented and spec'ed in the `com.verybigthings.penkala.relation` namespace.
 
-Penkala provides the integration with the [next.jdbc]() library, which will query the DB, get the information about the
+Penkala provides the integration with the [next.jdbc](https://github.com/seancorfield/next-jdbc/) library, which will query the DB, get the information about the
 tables and views and return a map with relations based on this information.
 
 ```clojure
