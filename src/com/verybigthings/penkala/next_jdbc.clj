@@ -149,6 +149,55 @@
        (first res)
        res))))
 
+(defn insert!
+  ([env insertable data] (insert! env insertable data {}))
+  ([env insertable data decomposition-schema-overrides]
+   (let [db (::env/db env)
+         insertable' (if (keyword? insertable) (r/->insertable (get env insertable)) insertable)
+         sqlvec (r/get-insert-query insertable' env data)]
+     (if (:projection insertable')
+       (let [decomposition-schema (d/infer-schema insertable' decomposition-schema-overrides)
+             res  (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
+                    (d/decompose decomposition-schema))]
+         (if (map? data) (first res) res))
+       (jdbc/execute-one! db sqlvec default-next-jdbc-options)))))
+
+(defn update!
+  ([env updatable updates] (update! env updatable updates {} {}))
+  ([env updatable updates params] (update! env updatable updates params {}))
+  ([env updatable updates params decomposition-schema-overrides]
+   (let [db (::env/db env)
+         updatable' (-> (if (keyword? updatable)
+                          (r/->updatable (get env updatable))
+                          updatable)
+                      (r/with-updates updates))
+         sqlvec (r/get-update-query updatable' env params)]
+     (if (:projection updatable')
+       (let [;; Updatable might have a from table set which will be reusing the joins map
+             ;; and we don't want the infer function to pick it up, so we remove it here
+             decomposition-schema (d/infer-schema (dissoc updatable' :joins) decomposition-schema-overrides)
+             res (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
+                                    (d/decompose decomposition-schema))]
+         res)
+       (jdbc/execute-one! db sqlvec default-next-jdbc-options)))))
+
+
+(defn delete!
+  ([env deletable] (delete! env deletable {} {}))
+  ([env deletable params] (delete! env deletable params {}))
+  ([env deletable params decomposition-schema-overrides]
+   (let [db (::env/db env)
+         deletable' (if (keyword? deletable) (r/->deletable (get env deletable)) deletable)
+         sqlvec (r/get-delete-query deletable' env params)]
+     (if (:projection deletable')
+       (let [;; Deletable might have an using table set which will be reusing the joins map
+             ;; and we don't want the infer function to pick it up, so we remove it here
+             decomposition-schema (d/infer-schema (dissoc deletable' :joins) decomposition-schema-overrides)
+             res (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
+                   (d/decompose decomposition-schema))]
+         res)
+       (jdbc/execute-one! db sqlvec default-next-jdbc-options)))))
+
 (comment
   (def users-spec {:name "users"
                    :columns ["id" "username" "is_admin"]

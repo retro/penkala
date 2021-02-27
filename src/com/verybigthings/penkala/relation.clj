@@ -7,6 +7,9 @@
             [com.verybigthings.penkala.util
              :refer [expand-join-path path-prefix-join path-prefix-split joins q as-vec col->alias]]
             [com.verybigthings.penkala.statement.select :as sel]
+            [com.verybigthings.penkala.statement.insert :as ins]
+            [com.verybigthings.penkala.statement.update :as upd]
+            [com.verybigthings.penkala.statement.delete :as del]
             [clojure.set :as set]))
 
 ;; TODO: keyset pagination
@@ -14,8 +17,6 @@
 (defprotocol IRelation
   (-lock [this lock-type locked-rows])
   (-join [this join-type join-rel join-alias join-on])
-  (-where [this where-expression])
-  (-or-where [this where-expression])
   (-having [this having-expression])
   (-or-having [this having-expression])
   (-offset [this offset])
@@ -27,13 +28,29 @@
   (-rename [this prev-col-name next-col-name])
   (-select [this projection])
   (-distinct [this distinct-expression])
-  (-only [this is-only])
   (-union [this other-rel])
   (-union-all [this other-rel])
   (-intersect [this other-rel])
   (-except [this other-rel])
   (-wrap [this])
   (-with-parent [this parent]))
+
+(defprotocol IWriteable
+  (-returning [this projection]))
+
+(defprotocol IUpdatable
+  (-with-updates [this updates])
+  (-from [this from-rel from-alias]))
+
+(defprotocol IDeletable
+  (-using [this using-rel using-alias]))
+
+(defprotocol IWhere
+  (-where [this where-expression])
+  (-or-where [this where-expression]))
+
+(defprotocol IOnly
+  (-only [this is-only]))
 
 (defrecord Wrapped [subject-type subject])
 
@@ -168,6 +185,15 @@
 (s/def ::relation
   #(satisfies? IRelation %))
 
+(s/def ::writeable
+  #(satisfies? IWriteable %))
+
+(s/def ::updatable
+  #(satisfies? IUpdatable %))
+
+(s/def ::deletable
+  #(satisfies? IDeletable %))
+
 (s/def ::wrapped-column
   #(and (= Wrapped (type %)) (= :column (:subject-type %))))
 
@@ -203,6 +229,9 @@
                               :column-identifier ::column-identifier
                               :order-direction ::order-direction
                               :order-nulls ::order-nulls)))
+
+(s/def ::updates
+  (s/map-of keyword? ::value-expression))
 
 (s/def ::orders
   (s/coll-of ::order))
@@ -387,6 +416,15 @@
   ([rel env params]
    (sel/format-query env rel params)))
 
+(defn get-insert-query [insertable env data]
+  (ins/format-query env insertable data))
+
+(defn get-update-query [updatable env params]
+  (upd/format-query env updatable params))
+
+(defn get-delete-query [deletable env params]
+  (del/format-query env deletable params))
+
 (defn make-combined-relations-spec [operator rel1 rel2]
   (let [rel1-cols (get-projected-columns rel1)
         rel2-cols (get-projected-columns rel2)]
@@ -408,6 +446,56 @@
 
 (declare spec->relation)
 
+(defn -writeable-returning [rel projection]
+  (if projection
+    (let [processed-projection (process-projection rel (s/conform ::column-list projection))]
+      (assoc rel :projection processed-projection))
+    (assoc rel :projection nil)))
+
+(defrecord Insertable [spec]
+  IWriteable
+  (-returning [this projection]
+    (-writeable-returning this projection)))
+
+(defrecord Updatable [spec]
+  IWriteable
+  (-returning [this projection]
+    (-writeable-returning this projection))
+  IWhere
+  (-where [this where-expression]
+    (and-predicate this :where where-expression))
+  (-or-where [this where-expression]
+    (or-predicate this :where where-expression))
+  IOnly
+  (-only [this is-only]
+    (assoc this :only is-only))
+  IUpdatable
+  (-with-updates [this updates]
+    (let [processed-updates (->> updates
+                              (s/conform ::updates)
+                              (filter (fn [[k _]] (contains? (:aliases->ids this) k)))
+                              (map (fn [[k v]] [k (process-value-expression this v)]))
+                              (into {}))]
+      (assoc this :updates processed-updates)))
+  (-from [this from-rel from-alias]
+    (assoc this :joins {from-alias {:relation from-rel}})))
+
+(defrecord Deletable [spec]
+  IWriteable
+  (-returning [this projection]
+    (-writeable-returning this projection))
+  IWhere
+  (-where [this where-expression]
+    (and-predicate this :where where-expression))
+  (-or-where [this where-expression]
+    (or-predicate this :where where-expression))
+  IOnly
+  (-only [this is-only]
+    (assoc this :only is-only))
+  IDeletable
+  (-using [this using-rel using-alias]
+    (assoc this :joins {using-alias {:relation using-rel}})))
+
 (defrecord Relation [spec]
   IRelation
   (-lock [this lock-type locked-rows]
@@ -419,10 +507,6 @@
           with-join (assoc-in this [:joins join-alias] {:relation join-rel' :type join-type})
           join-on' (process-value-expression with-join (s/conform ::value-expression join-on))]
       (assoc-in with-join [:joins join-alias :on] join-on')))
-  (-where [this where-expression]
-    (and-predicate this :where where-expression))
-  (-or-where [this where-expression]
-    (or-predicate this :where where-expression))
   (-having [this having-expression]
     (and-predicate this :having having-expression))
   (-or-having [this having-expression]
@@ -477,8 +561,6 @@
   (-select [this projection]
     (let [processed-projection (process-projection this (s/conform ::column-list projection))]
       (assoc this :projection processed-projection)))
-  (-only [this is-only]
-    (assoc this :only is-only))
   (-distinct [this distinct-expression]
     (cond
       (boolean? distinct-expression)
@@ -507,7 +589,15 @@
                      :query #(get-select-query this %)
                      :wrapped this}))
   (-with-parent [this parent-rel]
-    (assoc this :parent parent-rel)))
+    (assoc this :parent parent-rel))
+  IOnly
+  (-only [this is-only]
+    (assoc this :only is-only))
+  IWhere
+  (-where [this where-expression]
+    (and-predicate this :where where-expression))
+  (-or-where [this where-expression]
+    (or-predicate this :where where-expression)))
 
 (defn lock
   "Lock selected rows"
@@ -743,6 +833,17 @@
           :projection ::column-list)
   :ret ::relation)
 
+(defn returning
+  "Selects columns from the write operation (insert, update, delete)"
+  [writeable projection]
+  (-returning writeable projection))
+
+(s/fdef returning
+  :args (s/cat
+          :rel ::writeable
+          :projection ::column-list)
+  :ret ::writeable)
+
 (defn distinct
   "Adds a distinct or distinct on clause."
   ([rel]
@@ -882,13 +983,72 @@
   :args (s/cat :rel ::relation :pk (s/coll-of keyword? :kind vector?))
   :ret ::relation)
 
+(defn with-updates [updatable updates]
+  (-with-updates updatable updates))
+
+(s/fdef with-updates
+  :args (s/cat :updatable ::updatable :updates ::updates)
+  :ret ::updatable)
+
+(defn from [updatable from-rel from-alias]
+  (-from updatable from-rel from-alias))
+
+(s/fdef from
+  :args (s/cat :updatable ::updatable
+          :from-rel ::relation
+          :from-alias keyword?)
+  :ret ::updatable)
+
+(defn using [deletable using-rel using-alias]
+  (-using deletable using-rel using-alias))
+
+(s/fdef using
+  :args (s/cat :deletable ::deletable
+          :using-rel ::relation
+          :using-alias keyword?)
+  :ret ::deletable)
+
 (defn spec->relation [spec-map]
   (-> (->Relation (assoc spec-map :namespace (->kebab-case-string (:name spec-map))))
-    (with-default-columns)
-    (with-default-projection)
-    (with-default-pk)))
+    with-default-columns
+    with-default-projection
+    with-default-pk))
 
 (s/fdef spec->relation
   :args (s/cat :spec-map ::spec-map)
   :ret ::relation)
 
+(defn ->writeable [constructor rel]
+  (if (get-in rel [:spec :is-insertable-into])
+    (-> (constructor (:spec rel))
+      with-default-columns
+      with-default-projection
+      with-default-pk)
+    (throw (ex-info "Relation is not writeable" {:relation rel}))))
+
+(defn ->insertable
+  "Converts a relation into an \"insertable\" record which can be used to compose an insert query"
+  [rel]
+  (->writeable ->Insertable rel))
+
+(s/fdef ->insertable
+  :args (s/cat :relation ::relation)
+  :ret ::writeable)
+
+(defn ->updatable
+  "Converts a relation into an \"updatable\" record which can be used to compose an update query"
+  [rel]
+  (->writeable ->Updatable rel))
+
+(s/fdef ->updatable
+  :args (s/cat :relation ::relation)
+  :ret ::updatable)
+
+(defn ->deletable
+  "Converts a relation into an \"deletable\" record which can be used to compose a delete query"
+  [rel]
+  (->writeable ->Deletable rel))
+
+(s/fdef ->deletable
+  :args (s/cat :relation ::relation)
+  :ret ::deletable)
