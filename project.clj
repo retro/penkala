@@ -1,4 +1,4 @@
-(defproject com.verybigthings/penkala "0.0.2"
+(defproject com.verybigthings/penkala "0.0.3"
   :description "Composable query builder for PostgreSQL."
   :url "https://github.com/retro/penkala"
   :license {:name "MIT License"
