@@ -189,13 +189,6 @@
                   (r/on-conflict-do-nothing
                     [:on-constraint "things_pkey"]))
                 {:stuff "stuff" :name "NAME" :id 1})]
-      (is (nil? res)))
-    (let [res (insert! *env*
-                (-> ins-things
-                  (r/on-conflict-do-nothing
-                    [:on-constraint "things_pkey"]
-                    [:= :name "NAME"]))
-                {:stuff "stuff" :name "NAME" :id 1})]
       (is (nil? res)))))
 
 
@@ -245,20 +238,5 @@
                  :id 1})]
       (is (= #:things{:stuff "stuff1"
                       :name "NAME1"
-                      :id 1}
-            res)))
-    (let [res (insert! *env*
-                (-> ins-things
-                  (r/on-conflict-do-update
-                    [:on-constraint "things_pkey"]
-                    {:stuff [:concat :excluded/stuff "2"]
-                     :name [:concat :excluded/name "2"]
-                     :id 1}
-                    [:= :name "NAME1"]))
-                {:stuff "stuff1"
-                 :name "NAME1"
-                 :id 1})]
-      (is (= #:things{:stuff "stuff12"
-                      :name "NAME12"
                       :id 1}
             res)))))

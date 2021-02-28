@@ -509,6 +509,13 @@
                   (-> this'
                     (process-value-expression (s/conform ::value-expression where-expression))
                     process-on-conflict-column-references))]
+      (when
+        (and (= :on-constraint (first processed-conflict-target))
+          where)
+        (throw (ex-info "ON CONSTRAINT can't be used with a WHERE clause" {:insertable this
+                                                                           :where where-expression
+                                                                           :conflict-target conflict-target})))
+
       (assoc this'' :on-conflict {:action action
                                   :conflict-target processed-conflict-target
                                   :updates processed-updates

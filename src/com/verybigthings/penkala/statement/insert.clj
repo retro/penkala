@@ -74,6 +74,7 @@
       (-> acc
         (update :query conj "ON CONFLICT")
         (with-on-conflict-conflict-target env insertable)
+        (with-on-conflict-where env insertable)
         (update :query conj action)
         (with-on-conflict-updates env insertable)))
     acc))
