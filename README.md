@@ -49,7 +49,7 @@ Every operation on a relation is returning a _new_ relation that you can use and
 => ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"public\".\"users\" AS \"users\""]
 ```
 
-To create a relation, you need a relation spec. This describes the table (or view) columns, it's name, primary key and schema.
+To create a relation, you need a relation spec. This describes the table (or view) columns, its name, primary key and schema.
 The spec can be used to create a relation, which can then be used to generate queries.
 
 `r/get-select-query` function returns a "sqlvec" where the first element in the vector is the SQL query, and the remaining 
@@ -110,7 +110,7 @@ and value expressions are written as vectors:
 [:= :id 1]
 ```
 
-In this case Penkala will look for a column named `:id` and compare it to the value `1`. Value expressions can be arbitrarly
+In this case Penkala will look for a column named `:id` and compare it to the value `1`. Value expressions can be arbitrarily
 nested to any depth, and allow you to write almost any SQL you might need.
 
 Some examples:
@@ -129,7 +129,7 @@ Some examples:
 (-> *env* :products (r/where ["&&" :tags ["tag3" "tag4" "tag5"]]))
 ```
 
-When writing a value expression, first element of a vector will be used to determine the type of the expression (operator, function, etc..) and the
+When writing a value expression, first element of a vector will be used to determine the type of the expression (operator, function, etc.) and the
 rest will be sent as arguments. Keywords have a special meaning in value expressions, and when encountering them (anywhere except in the first position), 
 Penkala will check if there is a column with that name in the current relation. If there is, it will treat it as a column name, and if it is not, it will
 treat it as a value. If you need to explicitly treat something as a value or param or column... `com.verybigthings.penkala.helpers` provides wrapper 
@@ -200,6 +200,270 @@ Here's an example from the test suite:
 
 In this case, multiple relations were joined (on multiple levels) and then transformed into a graph form. Decomposition schema
 was inferred from the relation joins structure.
+
+## Insert, Update and Delete
+
+From version 0.0.3 Penkala supports insert, update and delete statements. To insert, update or delete data you need to create an "Insertable", "Updatable" or "Deletable" (commonly called "Writeable") record from the base relation. If you create a writeable record from a relation that has joins, it will use only the topmost relation. Insertable and updatable will filter the data passed to them and only use the keys that relate to the columns in the target table.
+
+### Insert
+
+If we have a `posts` relation:
+
+```clojure
+(def posts-spec {:name "posts"
+                 :columns ["id" "user_id" "body"]
+                 :pk ["id"]
+                 :schema "public"})
+  
+(def posts-rel (r/spec->relation users-spec))
+```
+
+We can create an insertable record:
+
+```clojure
+(def posts-ins (r/->insertable posts-rel))
+```
+
+This insertable record will by default use the `returning` statement, and will return all columns from the created record(s). You can change the returned columns by using the `returning` function
+
+```clojure
+(r/returning posts-ins nil)
+```
+
+In this case, default `next.jdbc` data will be returned which will include the count of the updated rows:
+
+```clojure
+#:next.jdbc{:update-count 1}
+```
+
+```clojure
+(r/returning posts-ins [:id])
+```
+
+In this case, only the `id` column will be returned.
+
+To actually insert the data, use `com.verybigthings.penkala.next-jdbc/insert!` function:
+
+```clojure
+(insert! *env* posts-ins {:user-id 1 :body "This is my first post"})
+=> #:posts{:id 1
+           :user-id 1
+           :body "This is my first post"}
+```
+
+If you pass a vector of maps to the `insert!` function, multiple records will be created, and a vector of results will be returned
+
+```clojure
+(insert! *env* posts-ins [{:user-id 1 :body "This is my first post"} {:user-id 1 :body "This is my second post"}])
+=> [#:posts{:id 1
+           :user-id 1
+           :body "This is my first post"}
+    #:posts{:id 2
+            :user-id 1
+            :body "This is my second post"}]
+```
+
+#### Upsert
+
+Penkala supports upserts ("INSERT ... ON CONFLICT"). There are two functions - `on-conflict-do-nothing` and `on-conflict-do-update` - exposed:
+
+```clojure
+(insert! *env* 
+ (-> posts-ins
+  (r/on-conflict-do-nothing))
+ {:user-id 1 :body "This is my first post"})
+=> nil
+```
+
+You can pass explicit "conflict target" to the `on-conflict-do-...` functions:
+
+```clojure
+(insert! *env* 
+ (-> posts-ins
+  (r/on-conflict-do-nothing [:body]))
+ {:user-id 1 :body "This is my first post"})
+=> nil
+```
+
+or
+
+```clojure
+(insert! *env* 
+ (-> posts-ins
+  (r/on-conflict-do-nothing [:on-constraint "posts_pkey"]))
+ {:id 1 :user-id 1 :body "This is my first post"})
+=> nil
+```
+
+If you use constraint inference (and you're not passing explicit constraint name through the `:on-constraint` form), you can add the "WHERE" clause to the `on-conflict-do-...` functions:
+
+```clojure
+(insert! *env* 
+ (-> posts-ins
+  (r/on-conflict-do-nothing [:body] [:= :id 1]))
+ {:user-id 1 :body "This is my first post"})
+=> nil
+```
+
+When using `on-conflict-do-update` function, you must pass the update map:
+
+```clojure
+(insert! *env*
+  (-> posts-ins
+    (r/on-conflict-do-update
+      [:body]
+      {:body [:concat :excluded/body " (1)"]}))
+  {:user-id 1
+   :body "This is my first post"})
+=> #:posts{:id 1
+           :user-id 1
+           :body "This is my first post (1)"} 
+```
+
+In the update map, keys are names of the columns and values are "value expressions". When using `on-conflict-do-update` function, you get access to the implicit "EXCLUDED" table (https://www.postgresql.org/docs/12/sql-insert.html).
+
+## Update
+
+If we have a `posts` relation:
+
+```clojure
+(def posts-spec {:name "posts"
+                 :columns ["id" "user_id" "body"]
+                 :pk ["id"]
+                 :schema "public"})
+  
+(def posts-rel (r/spec->relation users-spec))
+```
+
+We can create an updatable record:
+
+```clojure
+(def posts-upd (r/->updatable posts-rel))
+```
+
+Now we can perform updates by using the `com.verybigthings.penkala.next-jdbc/update!` function:
+
+```clojure
+(update! *env*
+ (-> posts-upd
+  (r/where [:= :id 1]))
+ {:body "This is my updated title"})
+=> [#:posts{:id 1
+            :user-id 1
+            :body "This is my updated title"}]
+```
+
+Where function in updatables supports value expressions (like selects).
+
+Updatables implement the `returning` function which can be used to select the returned columns (like inserts):
+
+```clojure
+(update! *env*
+ (-> posts-upd
+  (r/where [:= :id 1])
+  (r/returning nil))
+ {:body "This is my updated title"})
+=> #:next.jdbc{:update-count 1}
+```
+
+Penkala supports the `FROM` clause in updates, which allows you to join tables and reference them from the `WHERE` clause or from the update value expressions:
+
+_Example from the tests:_
+
+```clojure
+(deftest it-updates-with-from-tables
+  (let [normal-pk (:normal-pk *env*)
+        normal-pk-id-1 (select-one! *env* (-> normal-pk
+                                            (r/where [:= :id 1])))
+        upd-normal-pk (-> (r/->updatable normal-pk)
+                        (r/from normal-pk :normal-pk-2)
+                        (r/from normal-pk :normal-pk-3)
+                        (r/where [:and [:= :id 1]
+                                  [:= :id :normal-pk-2/id]
+                                  [:= :id :normal-pk-3/id]]))
+        res (update! *env* upd-normal-pk {:field-1 [:concat "from-outside" "<->" :normal-pk-2/field-1 "<->" :normal-pk-3/field-1]
+                                          :field-2 "foo"})]
+    (is (= [#:normal-pk{:field-1 (str "from-outside<->" (:normal-pk/field-1 normal-pk-id-1) "<->" (:normal-pk/field-1 normal-pk-id-1))
+                        :json-field nil
+                        :field-2 "foo"
+                        :array-of-json nil
+                        :array-field nil
+                        :id 1}]
+          res))))
+```
+
+In this example `normal-pk` table is self joined twice, under `:normal-pk-2` and `:normal-pk-3` aliases and then referenced both in the `WHERE` clause
+and in the update map.
+
+In update map, keys are names of columns, and values are value expressions that update the column. Only the keys that match column names will be selected from the update map.
+
+### Delete
+
+If we have a `posts` relation:
+
+```clojure
+(def posts-spec {:name "posts"
+                 :columns ["id" "user_id" "body"]
+                 :pk ["id"]
+                 :schema "public"})
+  
+(def posts-rel (r/spec->relation users-spec))
+```
+
+We can create a deletable record:
+
+```clojure
+(def posts-del (r/->deletable posts-rel))
+```
+
+Now we can perform deletes by using the `com.verybigthings.penkala.next-jdbc/delete!` function:
+
+```clojure
+(delete! *env*
+ (-> posts-del
+  (r/where [:= :id 1])))
+=> [#:posts{:id 1
+            :user-id 1
+            :body "This is my updated title"}]
+```
+
+Where function in deletables supports value expressions (like selects).
+
+Deletables implement the `returning` function which can be used to select the returned columns (like inserts):
+
+```clojure
+(delete! *env*
+ (-> posts-upd
+  (r/where [:= :id 1])
+  (r/returning nil)))
+=> #:next.jdbc{:update-count 1}
+```
+
+Penkala supports the `USING` clause in deletes, which allows you to join tables and reference them from the `WHERE` clause:
+
+_Example from the tests:_
+
+```clojure
+(deftest it-deletes-with-using-multiple
+  (let [products (:products *env*)
+        del-products (-> (r/->deletable products)
+                       (r/using (r/where products [:= :id 3]) :other-products-1)
+                       (r/using (r/where products [:= :id 3]) :other-products-2)
+                       (r/where [:and
+                                 [:= :id :other-products-1/id]
+                                 [:= :id :other-products-2/id]]))
+        res (delete! *env* del-products)]
+    (is (= [#:products{:description nil,
+                       :tags nil,
+                       :string "three",
+                       :id 3,
+                       :specs nil,
+                       :case-name nil,
+                       :price 0.00M}]
+          (mapv #(dissoc % :products/uuid) res)))))
+```
+
+In this example `products` table is joined twice under `:other-products-1` and `:other-products-2` alias and then referenced in the `WHERE` clause.
 
 ## Credits
 
