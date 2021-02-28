@@ -450,4 +450,3 @@
   (let [[query & params] (format-query-without-params-resolution env rel)
         resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
     (into [query] resolved-params)))
-

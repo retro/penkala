@@ -151,3 +151,114 @@
                     (update-in [:spec :is-insertable-into] not))]
     (is (thrown? clojure.lang.ExceptionInfo
           (r/->insertable normal-as)))))
+
+(deftest it-can-handle-conflicts-with-nothing
+  (let [things (:things *env*)
+        ins-things (r/->insertable things)]
+    (insert! *env* ins-things {:stuff "stuff" :name "NAME"})
+    (let [res (insert! *env*
+                (-> ins-things
+                  r/on-conflict-do-nothing)
+                {:stuff "stuff" :name "NAME"})]
+      (is (nil? res)))
+    (let [res (insert! *env*
+                (-> ins-things
+                  (r/on-conflict-do-nothing
+                    [:stuff [:lower :name]]))
+                {:stuff "stuff" :name "NAME"})]
+      (is (nil? res)))
+    (let [res (insert! *env*
+                (-> ins-things
+                  (r/on-conflict-do-nothing
+                    [:stuff [:lower :name]]
+                    [:= :name "NAME"]))
+                {:stuff "stuff" :name "NAME"})]
+      (is (nil? res)))))
+
+(deftest it-can-handle-conflicts-with-nothing-with-explicit-on-constraint
+  (let [things (:things *env*)
+        ins-things (r/->insertable things)]
+    (insert! *env* ins-things {:stuff "stuff" :name "NAME"})
+    (let [res (insert! *env*
+                (-> ins-things
+                  r/on-conflict-do-nothing)
+                {:stuff "stuff" :name "NAME"})]
+      (is (nil? res)))
+    (let [res (insert! *env*
+                (-> ins-things
+                  (r/on-conflict-do-nothing
+                    [:on-constraint "things_pkey"]))
+                {:stuff "stuff" :name "NAME" :id 1})]
+      (is (nil? res)))
+    (let [res (insert! *env*
+                (-> ins-things
+                  (r/on-conflict-do-nothing
+                    [:on-constraint "things_pkey"]
+                    [:= :name "NAME"]))
+                {:stuff "stuff" :name "NAME" :id 1})]
+      (is (nil? res)))))
+
+
+(deftest it-can-handle-conflicts-with-update
+  (let [things (:things *env*)
+        ins-things (r/->insertable things)]
+    (insert! *env* ins-things {:stuff "stuff" :name "NAME"})
+    (let [res (insert! *env*
+                (-> ins-things
+                  (r/on-conflict-do-update
+                    [:stuff [:lower :name]]
+                    {:stuff [:concat :excluded/stuff "1"]
+                     :name [:concat :excluded/name "1"]}))
+                {:stuff "stuff"
+                 :name "NAME"})]
+      (is (= #:things{:stuff "stuff1"
+                      :name "NAME1"
+                      :id 1}
+            res)))
+    (let [res (insert! *env*
+                (-> ins-things
+                  (r/on-conflict-do-update
+                    [:stuff [:lower :name]]
+                    {:stuff [:concat :excluded/stuff "2"]
+                     :name [:concat :excluded/name "2"]}
+                    [:= :name "NAME1"]))
+                {:stuff "stuff1"
+                 :name "NAME1"})]
+      (is (= #:things{:stuff "stuff12"
+                      :name "NAME12"
+                      :id 1}
+            res)))))
+
+(deftest it-can-handle-conflicts-with-update-with-explicit-on-constraint
+  (let [things (:things *env*)
+        ins-things (r/->insertable things)]
+    (insert! *env* ins-things {:stuff "stuff" :name "NAME"})
+    (let [res (insert! *env*
+                (-> ins-things
+                  (r/on-conflict-do-update
+                    [:on-constraint "things_pkey"]
+                    {:stuff [:concat :excluded/stuff "1"]
+                     :name [:concat :excluded/name "1"]
+                     :id 1}))
+                {:stuff "stuff"
+                 :name "NAME"
+                 :id 1})]
+      (is (= #:things{:stuff "stuff1"
+                      :name "NAME1"
+                      :id 1}
+            res)))
+    (let [res (insert! *env*
+                (-> ins-things
+                  (r/on-conflict-do-update
+                    [:on-constraint "things_pkey"]
+                    {:stuff [:concat :excluded/stuff "2"]
+                     :name [:concat :excluded/name "2"]
+                     :id 1}
+                    [:= :name "NAME1"]))
+                {:stuff "stuff1"
+                 :name "NAME1"
+                 :id 1})]
+      (is (= #:things{:stuff "stuff12"
+                      :name "NAME12"
+                      :id 1}
+            res)))))

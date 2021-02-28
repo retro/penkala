@@ -38,6 +38,9 @@
 (defprotocol IWriteable
   (-returning [this projection]))
 
+(defprotocol IInsertable
+  (-on-conflict-do [this action conflicts update where-expression]))
+
 (defprotocol IUpdatable
   (-with-updates [this updates])
   (-from [this from-rel from-alias]))
@@ -182,11 +185,25 @@
       :fragment-fn fn?
       :args (s/+ ::value-expression))))
 
+(s/def ::on-constraint
+  (s/tuple #(= :on-constraint %) string?))
+
+(s/def ::value-expressions
+  (s/coll-of ::value-expression))
+
+(s/def ::conflict-target
+  (s/or
+    :on-constraint ::on-constraint
+    :value-expressions ::value-expressions))
+
 (s/def ::relation
   #(satisfies? IRelation %))
 
 (s/def ::writeable
   #(satisfies? IWriteable %))
+
+(s/def ::insertable
+  #(satisfies? IInsertable %))
 
 (s/def ::updatable
   #(satisfies? IUpdatable %))
@@ -346,7 +363,6 @@
         (-> node
           (update-in [1 :column] #(process-value-expression rel %))
           (assoc-in [1 :in] in')))
-
       node)))
 
 (defn process-projection [rel node-list]
@@ -452,10 +468,51 @@
       (assoc rel :projection processed-projection))
     (assoc rel :projection nil)))
 
+(defn process-on-conflict-column-references [value]
+  (prewalk
+    (fn [val]
+      (if (and (vector? val) (= :resolved-column (first val)))
+        [:literal (-> val second :name)]
+        val))
+    value))
+
+(defn process-conflict-target [insertable conflict-target]
+  (let [[conflict-target-type & _] conflict-target]
+    (case conflict-target-type
+      :value-expressions
+      (update conflict-target 1 (fn [v] (mapv #(process-value-expression insertable %) v)))
+      :on-constraint
+      (last conflict-target)
+      conflict-target)))
+
 (defrecord Insertable [spec]
   IWriteable
   (-returning [this projection]
-    (-writeable-returning this projection)))
+    (-writeable-returning this projection))
+  IInsertable
+  (-on-conflict-do [this action conflict-target updates where-expression]
+    (let [excluded (assoc-in this [:spec :name] "EXCLUDED")
+          this' (dissoc this :joins)
+          this'' (if updates (assoc this' :joins {:excluded {:relation excluded}}) this')
+          processed-conflict-target (when conflict-target
+                                      (->> conflict-target
+                                        (s/conform ::conflict-target)
+                                        (process-conflict-target this')
+                                        process-on-conflict-column-references))
+          processed-updates (when updates
+                              (->> updates
+                                (s/conform ::updates)
+                                (filter (fn [[k _]] (contains? (:aliases->ids this'') k)))
+                                (map (fn [[k v]] [k (process-value-expression this'' v)]))
+                                (into {})))
+          where (when where-expression
+                  (-> this'
+                    (process-value-expression (s/conform ::value-expression where-expression))
+                    process-on-conflict-column-references))]
+      (assoc this'' :on-conflict {:action action
+                                  :conflict-target processed-conflict-target
+                                  :updates processed-updates
+                                  :where where}))))
 
 (defrecord Updatable [spec]
   IWriteable
@@ -1008,6 +1065,30 @@
           :using-alias keyword?)
   :ret ::deletable)
 
+(defn on-conflict-do-nothing
+  ([insertable] (on-conflict-do-nothing insertable nil nil))
+  ([insertable conflicts] (on-conflict-do-nothing insertable conflicts nil))
+  ([insertable conflicts where-expression]
+   (-on-conflict-do insertable :nothing conflicts nil where-expression)))
+
+(s/fdef on-conflict-do-nothing
+  :args (s/cat :insertable ::insertable
+          :conflict-target ::conflict-target
+          :where-expression (s/? ::value-expression))
+  :ret ::insertable)
+
+(defn on-conflict-do-update
+  ([insertable conflicts updates] (on-conflict-do-update insertable conflicts updates nil))
+  ([insertable conflicts updates where-expression]
+   (-on-conflict-do insertable :update conflicts updates where-expression)))
+
+(s/fdef on-conflict-do-update
+  :args (s/cat :insertable ::insertable
+          :conflict-target ::conflict-target
+          :updates ::updates
+          :where-expression (s/? ::value-expression))
+  :ret ::insertable)
+
 (defn spec->relation [spec-map]
   (-> (->Relation (assoc spec-map :namespace (->kebab-case-string (:name spec-map))))
     with-default-columns
@@ -1033,7 +1114,7 @@
 
 (s/fdef ->insertable
   :args (s/cat :relation ::relation)
-  :ret ::writeable)
+  :ret ::insertable)
 
 (defn ->updatable
   "Converts a relation into an \"updatable\" record which can be used to compose an update query"
