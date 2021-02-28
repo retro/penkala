@@ -37,6 +37,25 @@
                         :id 1}]
           res))))
 
+(deftest it-updates-with-from-tables
+  (let [normal-pk (:normal-pk *env*)
+        normal-pk-id-1 (select-one! *env* (-> normal-pk
+                                            (r/where [:= :id 1])))
+        upd-normal-pk (-> (r/->updatable normal-pk)
+                        (r/from normal-pk :normal-pk-2)
+                        (r/from normal-pk :normal-pk-3)
+                        (r/where [:and [:= :id 1]
+                                  [:= :id :normal-pk-2/id]
+                                  [:= :id :normal-pk-3/id]]))
+        res (update! *env* upd-normal-pk {:field-1 [:concat "from-outside" "<->" :normal-pk-2/field-1 "<->" :normal-pk-3/field-1]})]
+    (is (= [#:normal-pk{:field-1 (str "from-outside<->" (:normal-pk/field-1 normal-pk-id-1) "<->" (:normal-pk/field-1 normal-pk-id-1))
+                        :json-field nil
+                        :field-2 nil
+                        :array-of-json nil
+                        :array-field nil
+                        :id 1}]
+          res))))
+
 (deftest it-updates-without-returning-projection
   (let [normal-pk (:normal-pk *env*)
         upd-normal-pk (-> (r/->updatable normal-pk)

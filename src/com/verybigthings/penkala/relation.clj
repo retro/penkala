@@ -542,7 +542,7 @@
                               (into {}))]
       (assoc this :updates processed-updates)))
   (-from [this from-rel from-alias]
-    (assoc this :joins {from-alias {:relation from-rel}})))
+    (assoc-in this [:joins from-alias] {:relation from-rel})))
 
 (defrecord Deletable [spec]
   IWriteable
