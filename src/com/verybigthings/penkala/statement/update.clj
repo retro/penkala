@@ -23,17 +23,22 @@
 
 (defn with-from [acc env updatable]
   (if-let [from (:joins updatable)]
-    (reduce-kv
-      (fn [acc' alias f]
-        (let [from-relation (:relation f)
-              [from-query & from-params] (binding [sel/*scopes* (conj sel/*scopes* {:env env :rel updatable})]
-                                           (sel/format-query-without-params-resolution env from-relation))
-              from-clause ["FROM" (str "(" from-query ")") (q (get-rel-alias-with-prefix env alias))]]
-          (-> acc'
-            (update :query into from-clause)
-            (update :params into from-params))))
-      acc
-      from)
+    (let [{:keys [query params]}
+          (reduce-kv
+            (fn [acc' alias f]
+              (let [from-relation (:relation f)
+                    [from-query & from-params] (binding [sel/*scopes* (conj sel/*scopes* {:env env :rel updatable})]
+                                                 (sel/format-query-without-params-resolution env from-relation))
+                    from-clause (str "(" from-query ") " (q (get-rel-alias-with-prefix env alias)))]
+                (-> acc'
+                  (update :query conj from-clause)
+                  (update :params into from-params))))
+            sel/empty-acc
+            from)]
+      (-> acc
+        (update :query conj "FROM")
+        (update :query conj (str/join ", " query))
+        (update :params into params)))
     acc))
 
 (defn with-updates [acc env updatable]
