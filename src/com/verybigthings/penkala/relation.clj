@@ -558,7 +558,7 @@
     (assoc this :only is-only))
   IDeletable
   (-using [this using-rel using-alias]
-    (assoc this :joins {using-alias {:relation using-rel}})))
+    (assoc-in this [:joins using-alias] {:relation using-rel})))
 
 (defrecord Relation [spec]
   IRelation
