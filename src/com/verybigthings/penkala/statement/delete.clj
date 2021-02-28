@@ -23,17 +23,22 @@
 
 (defn with-using [acc env deletable]
   (if-let [using (:joins deletable)]
-    (reduce-kv
-      (fn [acc' alias f]
-        (let [using-relation (:relation f)
-              [using-query & using-params] (binding [sel/*scopes* (conj sel/*scopes* {:env env :rel deletable})]
-                                           (sel/format-query-without-params-resolution env using-relation))
-              using-clause ["USING" (str "(" using-query ")") (q (get-rel-alias-with-prefix env alias))]]
-          (-> acc'
-            (update :query into using-clause)
-            (update :params into using-params))))
-      acc
-      using)
+    (let [{:keys [query params]}
+          (reduce-kv
+            (fn [acc' alias f]
+              (let [from-relation (:relation f)
+                    [from-query & from-params] (binding [sel/*scopes* (conj sel/*scopes* {:env env :rel deletable})]
+                                                 (sel/format-query-without-params-resolution env from-relation))
+                    from-clause (str "(" from-query ") " (q (get-rel-alias-with-prefix env alias)))]
+                (-> acc'
+                  (update :query conj from-clause)
+                  (update :params into from-params))))
+            sel/empty-acc
+            using)]
+      (-> acc
+        (update :query conj "USING")
+        (update :query conj (str/join ", " query))
+        (update :params into params)))
     acc))
 
 (defn format-query [env deletable param-values]

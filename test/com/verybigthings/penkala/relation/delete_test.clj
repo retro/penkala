@@ -35,3 +35,21 @@
                        :case-name nil,
                        :price 0.00M}]
           (mapv #(dissoc % :products/uuid) res)))))
+
+(deftest it-deletes-with-using-multiple
+  (let [products (:products *env*)
+        del-products (-> (r/->deletable products)
+                       (r/using (r/where products [:= :id 3]) :other-products-1)
+                       (r/using (r/where products [:= :id 3]) :other-products-2)
+                       (r/where [:and
+                                 [:= :id :other-products-1/id]
+                                 [:= :id :other-products-2/id]]))
+        res (delete! *env* del-products)]
+    (is (= [#:products{:description nil,
+                       :tags nil,
+                       :string "three",
+                       :id 3,
+                       :specs nil,
+                       :case-name nil,
+                       :price 0.00M}]
+          (mapv #(dissoc % :products/uuid) res)))))
