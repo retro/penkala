@@ -8,8 +8,10 @@ Penkala is a composable query builder for PostgreSQL written in Clojure.
 
 Clojure has a number of libraries to interact with the database layer. So, why write another one? For my needs, I find them
 all operating on a wrong level of abstraction. Libraries like [HugSQL](https://www.hugsql.org/) and [HoneySQL](https://github.com/seancorfield/honeysql) allow you to use full extent of SQL, but 
-still require you to write a lot of boilerplate, while libraries like [Walkable](https://github.com/walkable-server/walkable) and [seql](https://github.com/exoscale/seql) operate on a very high level, but are 
+still require you to write a lot of boilerplate, while libraries like ~~[Walkable](https://github.com/walkable-server/walkable) and~~ [seql](https://github.com/exoscale/seql) operate on a very high level, but are 
 eschewing SQL and instead use EQL to write the queries.
+
+_In the previous version of the readme, Walkable was mentioned as one of the libraries that operate on EQL level vs. SQL level. Walkable does have an EQL layer, but it also offers a lower level API that allows you to express SQL in a more direct manner (https://walkable.gitlab.io/walkable/1.3.0/s-expressions.html)._
 
 I wanted something in the middle:
 
