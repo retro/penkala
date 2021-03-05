@@ -126,13 +126,19 @@
 (defn prettify-sql [sql]
   (SqlFormatter/format sql))
 
+(defn validate-relation [env rel]
+	(let [rel' (get env rel)]
+    (when (nil? rel')
+      (throw (ex-info "Relation doesn't exist" {:relation rel})))
+  rel'))
+
 (defn select!
   "Selects the results based on the relation and returns them decomposed."
   ([env relation] (select! env relation {} {}))
   ([env relation params] (select! env relation params {}))
   ([env relation params decomposition-schema-overrides]
    (let [db                   (::env/db env)
-         relation'            (if (keyword? relation) (get env relation) relation)
+         relation'            (if (keyword? relation) (validate-relation env relation) relation)
          sqlvec               (r/get-select-query relation' env params)
          decomposition-schema (d/infer-schema relation' decomposition-schema-overrides)]
      (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
