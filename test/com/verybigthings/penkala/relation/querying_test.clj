@@ -8,6 +8,9 @@
 
 (use-fixtures :once (partial th/reset-db-fixture "data-all"))
 
+(deftest if-throws-for-unexisting-relation
+  (is (thrown? clojure.lang.ExceptionInfo (select! *env* :unexisting-relation))))
+
 (deftest it-returns-all-records-by-default
   (let [res (select! *env* :products)]
     (is (= 4 (count res)))))

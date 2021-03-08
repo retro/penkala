@@ -126,13 +126,19 @@
 (defn prettify-sql [sql]
   (SqlFormatter/format sql))
 
+(defn validate-relation [env rel]
+	(let [rel' (get env rel)]
+    (when (nil? rel')
+      (throw (ex-info "Relation does not exist" {:relation rel})))
+  rel'))
+
 (defn select!
   "Selects the results based on the relation and returns them decomposed."
   ([env relation] (select! env relation {} {}))
   ([env relation params] (select! env relation params {}))
   ([env relation params decomposition-schema-overrides]
    (let [db                   (::env/db env)
-         relation'            (if (keyword? relation) (get env relation) relation)
+         relation'            (if (keyword? relation) (validate-relation env relation) relation)
          sqlvec               (r/get-select-query relation' env params)
          decomposition-schema (d/infer-schema relation' decomposition-schema-overrides)]
      (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
@@ -153,7 +159,9 @@
   ([env insertable data] (insert! env insertable data {}))
   ([env insertable data decomposition-schema-overrides]
    (let [db (::env/db env)
-         insertable' (if (keyword? insertable) (r/->insertable (get env insertable)) insertable)
+         insertable' (if (keyword? insertable)
+                       (-> env (validate-relation insertable) (r/->insertable))
+                       insertable)
          sqlvec (r/get-insert-query insertable' env data)]
      (if (:projection insertable')
        (let [;; If we're using insertable with on-conflict-do-update, an implicit join to the "excluded"
@@ -171,7 +179,7 @@
   ([env updatable updates params decomposition-schema-overrides]
    (let [db (::env/db env)
          updatable' (-> (if (keyword? updatable)
-                          (r/->updatable (get env updatable))
+                          (-> env (validate-relation updatable) (r/->updatable))
                           updatable)
                       (r/with-updates updates))
          sqlvec (r/get-update-query updatable' env params)]
@@ -190,7 +198,9 @@
   ([env deletable params] (delete! env deletable params {}))
   ([env deletable params decomposition-schema-overrides]
    (let [db (::env/db env)
-         deletable' (if (keyword? deletable) (r/->deletable (get env deletable)) deletable)
+         deletable' (if (keyword? deletable)
+                      (-> env (validate-relation deletable) (r/->deletable))
+                      deletable)
          sqlvec (r/get-delete-query deletable' env params)]
      (if (:projection deletable')
        (let [;; Deletable might have an using table set which will be reusing the joins map

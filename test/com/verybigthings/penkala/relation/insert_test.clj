@@ -75,6 +75,11 @@
           (insert! *env* ins-normal-pk [{:field-1 "ephemeral"}
                                         {:field-2 "insufficient"}])))))
 
+(deftest it-throws-for-unexisting-relation
+  (is (thrown? clojure.lang.ExceptionInfo
+        (insert! *env* :unexisting-relation [{:field-1 "ephemeral"}
+                                             {:field-2 "insufficient"}]))))
+
 (deftest it-inserts-array-fields
   (let [normal-pk (:normal-pk *env*)
         ins-normal-pk (r/->insertable normal-pk)
@@ -151,6 +156,10 @@
                     (update-in [:spec :is-insertable-into] not))]
     (is (thrown? clojure.lang.ExceptionInfo
           (r/->insertable normal-as)))))
+
+(deftest it-throws-if-invalid-insertable
+	(is (thrown? clojure.lang.ExceptionInfo
+    (r/->insertable :invalid-relation))))
 
 (deftest it-can-handle-conflicts-with-nothing
   (let [things (:things *env*)
