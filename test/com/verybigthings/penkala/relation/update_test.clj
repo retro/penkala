@@ -7,6 +7,10 @@
 
 (use-fixtures :each (partial th/reset-db-fixture "updatables"))
 
+(deftest it-throws-for-unexisting-relation
+  (is (thrown? clojure.lang.ExceptionInfo
+        (update! *env* :unexisting-relation [{:field-1 "zeta"}]))))
+
 (deftest it-updates
   (let [normal-pk (:normal-pk *env*)
         upd-normal-pk (-> (r/->updatable normal-pk)
