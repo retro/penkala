@@ -1107,6 +1107,8 @@
   :ret ::relation)
 
 (defn ->writeable [constructor rel]
+	(when (nil? rel)
+    (throw (ex-info "Invalid relation" {:relation rel})))
   (if (get-in rel [:spec :is-insertable-into])
     (-> (constructor (:spec rel))
       with-default-columns
