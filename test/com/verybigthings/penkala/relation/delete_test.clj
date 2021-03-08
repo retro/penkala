@@ -7,6 +7,10 @@
 
 (use-fixtures :each (partial th/reset-db-fixture "singletable"))
 
+(deftest it-throws-for-unexisting-relation
+  (is (thrown? clojure.lang.ExceptionInfo
+        (delete! *env* :unexisting-relation))))
+
 (deftest it-deletes
   (let [products (:products *env*)
         del-products (-> (r/->deletable products)
