@@ -1,4 +1,6 @@
-# Querying
+# Overview
+
+The intention of this documentation is to explain how to use Penkala through examples. For detailed information regarding a specific function check [cljdoc](https://cljdoc.org/versions/com.verybigthings/penkala) and code/tests.
 
 ## Composing queries
 
@@ -34,6 +36,7 @@ Composing queries can be achieved in a more explicit way by using relation spec:
 
 ```users-spec``` describes table name, columns, primary key and schema. It's used by ```spec->relation``` to create a relation wich is then used to generate the query. Note that ```environment``` isn't used in this case.
 
+
 ### Getting the data
 
 Penkala provides the integration with the [next.jdbc](https://github.com/seancorfield/next-jdbc/) library. To retrieve the data, we'll use ```com.verybigthings.penkala.next-jdbc/select!``` and ```com.verybigthings.penkala.next-jdbc/select-one!```  functions which will return a map of relations or a relation respectively:
@@ -53,6 +56,9 @@ Penkala provides the integration with the [next.jdbc](https://github.com/seancor
 (select-one! *env* (-> *env* :users (r/where [:= 1 :id])))
 => #:users{:is-admin false, :username test@test.com, :id 1}
 ```
+
+In case a relation isn't recognized from the keyword Penkala will throw an eception.
+
 
 ### Specifying a schema
 
@@ -79,23 +85,46 @@ Schema can also be renamed when necessary:
 => ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"bar\".\"users\" AS \"users\""]
 ```
 
-## Examples
 
-### where
-
-Adding WHERE clause:
+### Aggregate functions
 
 ```clojure
-(def admins-rel (r/where users-rel [:is-true :is-admin]))
+(require '[com.verybigthings.penkala.helpers :as h])
 
-(r/get-select-query admins-rel {})
+;; avg
 
-=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" WHERE \"users\".\"is_admin\" IS TRUE"]
+(-> users-rel
+  (r/extend-with-aggregate :average [:avg :id])
+  (r/get-select-query {}))
+
+=> ["SELECT avg(\"users\".\"id\") AS \"average\", \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" GROUP BY \"users\".\"id\", \"users\".\"is_admin\", \"users\".\"username\""]
+
+;; max
+
+(-> users-rel
+  (r/extend-with-aggregate :maximum [:max :id])
+  (r/get-select-query {}))
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", max(\"users\".\"id\") AS \"maximum\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" GROUP BY \"users\".\"id\", \"users\".\"is_admin\", \"users\".\"username\""]
+
+;; min
+
+(-> users-rel
+  (r/extend-with-aggregate :minimum [:min :id])
+  (r/get-select-query {}))
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", min(\"users\".\"id\") AS \"minimum\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" GROUP BY \"users\".\"id\", \"users\".\"is_admin\", \"users\".\"username\""]
+
+;; count
+
+(-> users-rel
+  (r/extend-with-aggregate :count [:count (h/l 1)])
+  (r/get-select-query {}))
+
+=> ["SELECT count(1) AS \"count\", \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" GROUP BY \"users\".\"id\", \"users\".\"is_admin\", \"users\".\"username\""]
 ```
 
-### distinct
-
-Adding a DISTINCT and DISTINCT ON clause:
+### DISTINCT and DISTINCT ON clause
 
 ```clojure
 (r/get-select-query (r/distinct users-rel) {})
@@ -109,7 +138,7 @@ Adding a DISTINCT and DISTINCT ON clause:
 => ["SELECT DISTINCT ON(\"users\".\"id\") \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\""]
 ```
 
-### except
+### EXCEPT operator
 
 Creates a relation that is a combination of two relations with the EXCEPT operator.
 
@@ -117,29 +146,13 @@ EXCEPT example
 
 ```clojure
 (-> users-rel
-	(r/except admins-rel)
+	(r/except (r/where users-rel [:is-true :is-admin]))
 	(r/get-select-query {}))
 
 => ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is-admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM (SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" EXCEPT SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" WHERE \"users\".\"is_admin\" IS TRUE) AS \"users\""]
 ```
 
-### extend-with-aggregate
-
-COUNT example:
-
-```clojure
-(require '[com.verybigthings.penkala.helpers :as h])
-
-(-> users-rel
-  (r/extend-with-aggregate :count [:count (h/l 1)])
-  (r/get-select-query {}))
-
-=> ["SELECT count(1) AS \"count\", \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" GROUP BY \"users\".\"id\", \"users\".\"is_admin\", \"users\".\"username\""]
-```
-
-### having
-
-And having operation. If there's already a having clause set, this clause will be joined with AND.
+### HAVING clause
 
 ```clojure
 (-> users-rel
@@ -150,9 +163,7 @@ And having operation. If there's already a having clause set, this clause will b
 => ["SELECT count(1) AS \"count\", \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" GROUP BY \"users\".\"id\", \"users\".\"is_admin\", \"users\".\"username\" HAVING count(1) > 1"]
 ```
 
-### intersect
-
-Creates a relation that is a combination of two relations with the INTERSECT operator.
+### INTERSECT operator
 
 ```clojure
 ;; ignored by seancorfield/readme
@@ -171,7 +182,7 @@ Creates a relation that is a combination of two relations with the INTERSECT ope
 => ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is-admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM (SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" INTERSECT SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" WHERE \"users\".\"is_admin\" IS TRUE) AS \"users\""]
 ```
 
-### join
+### JOIN clause
 
 ```clojure
 (def posts-spec {:name "posts"
@@ -180,18 +191,20 @@ Creates a relation that is a combination of two relations with the INTERSECT ope
   
 (def posts-rel (r/spec->relation users-spec))
 
-(r/get-select-query (r/join posts-rel :left admins-rel :author [:= :user-id :author/id]) {})
+(r/get-select-query (r/join posts-rel :left (r/where users-rel [:is-true :is-admin]) :author [:= :user-id :author/id]) {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\", \"author\".\"id\" AS \"author__id\", \"author\".\"is-admin\" AS \"author__is-admin\", \"author\".\"username\" AS \"author__username\" FROM \"users\" AS \"users\" LEFT OUTER JOIN (SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" WHERE \"users\".\"is_admin\" IS TRUE) \"author\" ON ? = \"author\".\"id\"" "user-id"]
 ```
 
-### limit
+### LIMIT clause
 
 ```clojure
 (r/get-select-query (r/limit users-rel 10) {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" LIMIT 10"]
 ```
 
-### lock
-
-Locks selected rows.
+### LOCK command
 
 ```clojure
 ;; ignored by seancorfield/readme
@@ -207,34 +220,64 @@ Locks selected rows.
 => ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" FOR SHARE"]
 ```
 
-### offset
+### OFFSET clause
 
 ```clojure
 (r/get-select-query (r/offset users-rel 10) {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" OFFSET 10"]
 ```
 
-### order-by
+### ORDER BY clause
 
 ```clojure
 (r/get-select-query (r/order-by users-rel [:id]) {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" ORDER BY \"users\".\"id\""]
+
 (r/get-select-query (r/order-by users-rel [[:id :desc]]) {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" ORDER BY \"users\".\"id\" DESC"]
+
+(r/get-select-query (r/order-by users-rel [[:id :desc][:username]]) {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" ORDER BY \"users\".\"id\" DESC, \"users\".\"username\""]
+
 (r/get-select-query (r/order-by users-rel [[:id :desc :nulls-first]]) {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" ORDER BY \"users\".\"id\" DESC NULLS FIRST"]
 ```
 
-### select
+### SELECT statement
 
 ```clojure
 (r/get-select-query (r/select users-rel [:id, :username]) {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\""]
 ```
 
-### union
+### UNION operator
 
 ```clojure
-(r/get-select-query (r/union users-rel admins-rel) {})
+(r/get-select-query (r/union users-rel (r/where users-rel [:is-true :is-admin])) {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is-admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM (SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" UNION SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" WHERE \"users\".\"is_admin\" IS TRUE) AS \"users\""]
 ```
 
-### union-all
+### UNION ALL operator
 
 ```clojure
-(r/get-select-query (r/union-all users-rel admins-rel) {})
+(r/get-select-query (r/union-all users-rel (r/where users-rel [:is-true :is-admin])) {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is-admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM (SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" UNION ALL SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" WHERE \"users\".\"is_admin\" IS TRUE) AS \"users\""]
+```
+
+### WHERE clause
+
+```clojure
+(def admins-rel (r/where users-rel [:is-true :is-admin]))
+
+(r/get-select-query admins-rel {})
+
+=> ["SELECT \"users\".\"id\" AS \"id\", \"users\".\"is_admin\" AS \"is-admin\", \"users\".\"username\" AS \"username\" FROM \"users\" AS \"users\" WHERE \"users\".\"is_admin\" IS TRUE"]
 ```
