@@ -11,7 +11,7 @@ We'll also add a simple ```users``` table (don't forget to connect to the databa
 ```sql
 create table users(
   id serial primary key,
-  username varchar(50) not null,
+  username varchar(50) unique,
   is_admin boolean
 );
 ```

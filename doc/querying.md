@@ -1,4 +1,4 @@
-# Overview
+# Querying
 
 The intention of this documentation is to explain how to use Penkala through examples. For detailed information regarding a specific function check [cljdoc](https://cljdoc.org/versions/com.verybigthings/penkala) and code/tests.
 
@@ -43,6 +43,8 @@ Penkala provides the integration with the [next.jdbc](https://github.com/seancor
 
 ```clojure
 ;; ignored by seancorfield/readme
+
+(require '[com.verybigthings.penkala.next-jdbc :refer [select!]])
 
 (select! *env* users-rel)
 => [#:users{:is-admin false, :username test@test.com, :id 1} #:users{:is-admin true, :username admin@test.com, :id 2}]
