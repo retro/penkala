@@ -42,17 +42,20 @@
     acc))
 
 (defn with-updates [acc env updatable]
-  (reduce-kv
-    (fn [acc' col col-update]
-      (let [col-id   (get-in updatable [:aliases->ids col])
-            col-name (get-in updatable [:columns col-id :name])
-            {:keys [query params]} (sel/compile-value-expression sel/empty-acc env updatable col-update)]
-        (-> acc'
-          (update :query into ["SET" (q col-name) "="])
-          (update :query into query)
-          (update :params into params))))
-    acc
-    (:updates updatable)))
+  (let [{:keys [query params]}
+        (reduce-kv
+          (fn [acc' col col-update]
+            (let [col-id   (get-in updatable [:aliases->ids col])
+                  col-name (get-in updatable [:columns col-id :name])
+                  {:keys [query params]} (sel/compile-value-expression sel/empty-acc env updatable col-update)]
+              (-> acc'
+                (update :query conj (str/join " " (into [(q col-name) "="] query)))
+                (update :params into params))))
+          sel/empty-acc
+          (:updates updatable))]
+    (-> acc
+      (update :query conj (str "SET " (str/join ", " query)))
+      (update :params into params))))
 
 (defn format-query [env updatable param-values]
   (let [{:keys [query params]} (-> {:query [(if (:only updatable) "UPDATE ONLY" "UPDATE")
