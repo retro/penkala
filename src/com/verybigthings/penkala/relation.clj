@@ -23,7 +23,7 @@
   (-limit [this limit])
   (-order-by [this orders])
   (-extend [this col-name extend-expression])
-  (-extend-with-aggregate [this col-name agg-expression agg-filter])
+  (-extend-with-aggregate [this col-name agg-expression])
   (-extend-with-window [this col-name window-expression partitions orders])
   (-rename [this prev-col-name next-col-name])
   (-select [this projection])
@@ -596,16 +596,14 @@
         (assoc-in [:ids->aliases id] col-name)
         (assoc-in [:aliases->ids col-name] id)
         (update :projection conj col-name))))
-  (-extend-with-aggregate [this col-name agg-expression agg-filter]
+  (-extend-with-aggregate [this col-name agg-expression]
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
-    (let [processed-agg (process-value-expression this [:function-call (s/conform ::function-call agg-expression)])
-          processed-agg-filter (when agg-filter (process-value-expression this (s/conform ::value-expression agg-filter)))
+    (let [processed-agg (process-value-expression this (s/conform ::value-expression agg-expression))
           id (keyword (gensym "column-"))]
       (-> this
         (assoc-in [:columns id] {:type :aggregate
-                                 :value-expression processed-agg
-                                 :filter processed-agg-filter})
+                                 :value-expression processed-agg})
         (assoc-in [:ids->aliases id] col-name)
         (assoc-in [:aliases->ids col-name] id)
         (update :projection conj col-name))))
@@ -843,16 +841,13 @@
 
   This column will be automatically selected."
   ([rel col-name agg-expression]
-   (-extend-with-aggregate rel col-name agg-expression nil))
-  ([rel col-name agg-expression agg-filter]
-   (-extend-with-aggregate rel col-name agg-expression agg-filter)))
+   (-extend-with-aggregate rel col-name agg-expression)))
 
 (s/fdef extend-with-aggregate
   :args (s/cat
           :rel ::relation
           :col-name keyword?
-          :agg-expression ::function-call
-          :agg-filter (s/? ::value-expression))
+          :agg-expression ::function-call)
   :ret ::relation)
 
 (defn extend-with-window

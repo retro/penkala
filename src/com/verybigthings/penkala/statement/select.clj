@@ -48,6 +48,14 @@
       (update :query conj (str sql-function-name "(" (str/join ", " query) ")"))
       (update :params into params))))
 
+(defmethod compile-function-call :filter [acc env rel function-name [vex filter-vex]]
+  (let [{vex-query :query vex-params :params} (compile-value-expression empty-acc env rel vex)
+        {filter-vex-query :query filter-vex-params :params} (compile-value-expression empty-acc env rel filter-vex)]
+    (-> acc
+      (update :params into vex-params)
+      (update :params into filter-vex-params)
+      (update :query conj (str (str/join " " vex-query) " FILTER(WHERE " (str/join " " filter-vex-query) ")")))))
+
 (defmethod compile-value-expression :default [acc env rel [vex-type & args]]
   (throw
     (ex-info
@@ -225,28 +233,6 @@
           (update :query conj (str "DISTINCT ON(" (str/join ", " query) ")")))))
     acc))
 
-(defn compile-aggregate-projection-value-expression [acc env rel col-def]
-  (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
-    (-> acc
-      (update :params into params)
-      (update :query conj (str/join " " query)))))
-
-(defn compile-aggregate-projection-filter [acc env rel {agg-filter :filter}]
-  (if agg-filter
-    (let [{:keys [query params]} (compile-value-expression empty-acc env rel agg-filter)]
-      (-> acc
-        (update :params into params)
-        (update :query conj (str "FILTER(WHERE " (str/join " " query) ")"))))
-    acc))
-
-(defn compile-aggregate-projection [acc env rel col-alias col-def]
-  (let [{:keys [query params]} (-> empty-acc
-                                 (compile-aggregate-projection-value-expression env rel col-def)
-                                 (compile-aggregate-projection-filter env rel col-def))]
-    (-> acc
-      (update :params into params)
-      (update :query conj (str (str/join " " query) " AS " (q col-alias))))))
-
 (defn with-projection
   ([acc env rel]
    (let [{:keys [query params]} (with-projection empty-acc env rel [])]
@@ -270,10 +256,7 @@
                             (or (seq path-prefix) (= col-type :concrete))
                             (update acc :query conj (str (q (get-rel-alias-with-prefix env rel-alias)) "." (q col-name) " AS " (q col-alias)))
 
-                            (and (not (seq path-prefix)) (= :aggregate col-type))
-                            (compile-aggregate-projection acc env rel col-alias col-def)
-
-                            (and (not (seq path-prefix)) (= :computed col-type))
+                            (and (not (seq path-prefix)) (contains? #{:aggregate :computed} col-type))
                             (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
                               (-> acc
                                 (update :params into params)
