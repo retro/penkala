@@ -235,11 +235,14 @@
     (is (= 2 (:products/count res)))))
 
 (deftest it-can-use-aggregates-with-filter
-  (let [res (select-one! *env* (-> *env* :products
+  (let [res (select! *env* (-> *env* :products
                                  (r/where [:in :price [12.00 24.00]])
-                                 (r/extend-with-aggregate :count [:count 1] [:= :price 12.00])
-                                 (r/select [:count])))]
-    (is (= 1 (:products/count res)))))
+                                 (r/extend-with-aggregate :has-products-priced-12 [:> [:filter [:count 1] [:= :price 12.00]] 0])
+                                 (r/select [:id :has-products-priced-12])
+                                 ))]
+    (is (= [{:products/has-products-priced-12 true, :products/id 1}
+            {:products/has-products-priced-12 false, :products/id 2}]
+          res))))
 
 (deftest it-can-use-window-functions
   (let [res (select! *env* (-> *env* :products
