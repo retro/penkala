@@ -1,19 +1,19 @@
 (ns com.verybigthings.penkala.next-jdbc
-  (:require  [camel-snake-kebab.core :refer [->kebab-case]]
-             [next.jdbc.result-set :as rs]
-             [jsonista.core :as j]
-             [hugsql.adapter.next-jdbc :as next-adapter]
-             [hugsql.core :as h]
-             [next.jdbc :as jdbc]
-             [com.verybigthings.penkala.relation :as r]
-             [com.verybigthings.penkala.util :refer [select-keys-with-default]]
-             [com.verybigthings.penkala.decomposition :as d]
-             [com.verybigthings.penkala.env :as env])
+  (:require [camel-snake-kebab.core :refer [->kebab-case]]
+            [next.jdbc.result-set :as rs]
+            [jsonista.core :as j]
+            [hugsql.adapter.next-jdbc :as next-adapter]
+            [hugsql.core :as h]
+            [next.jdbc :as jdbc]
+            [com.verybigthings.penkala.relation :as r]
+            [com.verybigthings.penkala.util :refer [select-keys-with-default]]
+            [com.verybigthings.penkala.decomposition :as d]
+            [com.verybigthings.penkala.env :as env])
   (:import (org.postgresql.util PGobject)
            (com.github.vertical_blank.sqlformatter SqlFormatter)))
 
 (defn pgobj->clj [^org.postgresql.util.PGobject pgobj]
-  (let [type (.getType pgobj)
+  (let [type  (.getType pgobj)
         value (.getValue pgobj)]
     (case type
       "json" (j/read-value value j/keyword-keys-object-mapper)
@@ -107,17 +107,17 @@
   ([db-spec] (get-env db-spec {}))
   ([db-spec config]
    (let [current-schema (-> (jdbc/execute-one! db-spec ["SELECT current_schema"] get-env-next-jdbc-options) :current-schema)]
-     (let [#_#_enums     (exec-internal-db-script db-spec :get-enums)
+     (let [#_#_enums (exec-internal-db-script db-spec :get-enums)
            #_#_functions (exec-internal-db-script db-spec :get-functions
                            (select-keys-with-default
                              config [:functions/forbidden :functions/allowed :functions/exceptions :schemas/allowed] nil))
            #_#_sequences (exec-internal-db-script db-spec :get-sequences)
-           tables    (exec-internal-db-script db-spec :get-tables
-                       (select-keys-with-default
-                         config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))
-           views     (exec-internal-db-script db-spec :get-views
-                       (select-keys-with-default
-                         config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))]
+           tables (exec-internal-db-script db-spec :get-tables
+                    (select-keys-with-default
+                      config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))
+           views  (exec-internal-db-script db-spec :get-views
+                    (select-keys-with-default
+                      config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))]
        (-> {}
          (env/with-current-schema current-schema)
          (env/with-db db-spec)
@@ -127,10 +127,10 @@
   (SqlFormatter/format sql))
 
 (defn validate-relation [env rel]
-	(let [rel' (get env rel)]
+  (let [rel' (get env rel)]
     (when (nil? rel')
       (throw (ex-info "Relation does not exist" {:relation rel})))
-  rel'))
+    rel'))
 
 (defn select!
   "Selects the results based on the relation and returns them decomposed."
@@ -158,18 +158,18 @@
 (defn insert!
   ([env insertable data] (insert! env insertable data {}))
   ([env insertable data decomposition-schema-overrides]
-   (let [db (::env/db env)
+   (let [db          (::env/db env)
          insertable' (if (keyword? insertable)
                        (-> env (validate-relation insertable) (r/->insertable))
                        insertable)
-         sqlvec (r/get-insert-query insertable' env data)]
+         sqlvec      (r/get-insert-query insertable' env data)]
      (if (:projection insertable')
        (let [;; If we're using insertable with on-conflict-do-update, an implicit join to the "excluded"
              ;; table is created. This will remove it so it's not picked up by the decomposition schema
              ;; inference.
              decomposition-schema (d/infer-schema (dissoc insertable' :joins) decomposition-schema-overrides)
-             res  (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
-                    (d/decompose decomposition-schema))]
+             res                  (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
+                                    (d/decompose decomposition-schema))]
          (if (map? data) (first res) res))
        (jdbc/execute-one! db sqlvec default-next-jdbc-options)))))
 
@@ -177,17 +177,17 @@
   ([env updatable updates] (update! env updatable updates {} {}))
   ([env updatable updates params] (update! env updatable updates params {}))
   ([env updatable updates params decomposition-schema-overrides]
-   (let [db (::env/db env)
+   (let [db         (::env/db env)
          updatable' (-> (if (keyword? updatable)
                           (-> env (validate-relation updatable) (r/->updatable))
                           updatable)
                       (r/with-updates updates))
-         sqlvec (r/get-update-query updatable' env params)]
+         sqlvec     (r/get-update-query updatable' env params)]
      (if (:projection updatable')
        (let [;; Updatable might have a from table set which will be reusing the joins map
              ;; and we don't want the infer function to pick it up, so we remove it here
              decomposition-schema (d/infer-schema (dissoc updatable' :joins) decomposition-schema-overrides)
-             res (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
+             res                  (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
                                     (d/decompose decomposition-schema))]
          res)
        (jdbc/execute-one! db sqlvec default-next-jdbc-options)))))
@@ -197,17 +197,17 @@
   ([env deletable] (delete! env deletable {} {}))
   ([env deletable params] (delete! env deletable params {}))
   ([env deletable params decomposition-schema-overrides]
-   (let [db (::env/db env)
+   (let [db         (::env/db env)
          deletable' (if (keyword? deletable)
                       (-> env (validate-relation deletable) (r/->deletable))
                       deletable)
-         sqlvec (r/get-delete-query deletable' env params)]
+         sqlvec     (r/get-delete-query deletable' env params)]
      (if (:projection deletable')
        (let [;; Deletable might have an using table set which will be reusing the joins map
              ;; and we don't want the infer function to pick it up, so we remove it here
              decomposition-schema (d/infer-schema (dissoc deletable' :joins) decomposition-schema-overrides)
-             res (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
-                   (d/decompose decomposition-schema))]
+             res                  (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
+                                    (d/decompose decomposition-schema))]
          res)
        (jdbc/execute-one! db sqlvec default-next-jdbc-options)))))
 
@@ -235,4 +235,4 @@
 
   (require '[com.verybigthings.penkala.helpers :refer [param]])
 
-  (r/get-select-query (r/where posts-rel [:= :user-id (param :user/id )]) {} {:user/id 1}))
+  (r/get-select-query (r/where posts-rel [:= :user-id (param :user/id)]) {} {:user/id 1}))

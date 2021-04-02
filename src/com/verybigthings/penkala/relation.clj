@@ -282,11 +282,11 @@
   (let [column           (if (keyword? node) node (:subject node))
         column-ns        (namespace column)
         column-join-path (when (seq column-ns) (str/split column-ns #"\."))
-        column-name (name column)]
+        column-name      (name column)]
     (if (seq column-join-path)
       (let [column-join-path' (map keyword column-join-path)
-            column-rel (get-in rel (expand-join-path column-join-path'))
-            id (get-in column-rel [:aliases->ids (keyword column-name)])]
+            column-rel        (get-in rel (expand-join-path column-join-path'))
+            id                (get-in column-rel [:aliases->ids (keyword column-name)])]
         (when id
           {:path column-join-path' :id id :name column-name :original column}))
       (when-let [id (get-in rel [:aliases->ids (keyword column-name)])]
@@ -356,7 +356,7 @@
         (update-in node [1 :args] (fn [args] (mapv #(process-value-expression (:parent rel) %) args))))
 
       :inclusion-operation
-      (let [in (get-in node [1 :in])
+      (let [in  (get-in node [1 :in])
             in' (if (= :value-expressions (first in))
                   (update in 1 (fn [args] (mapv #(process-value-expression rel %) args)))
                   in)]
@@ -378,9 +378,9 @@
 (defn process-orders [rel orders]
   (map
     (fn [[node-type node]]
-      (let [node' (if (= :column-identifier node-type) {:column-identifier node} node)
+      (let [node'             (if (= :column-identifier node-type) {:column-identifier node} node)
             column-identifier (-> node' :column-identifier second)
-            column (resolve-column rel column-identifier)]
+            column            (resolve-column rel column-identifier)]
         (when (nil? column)
           (throw (ex-info-missing-column rel column-identifier)))
         (assoc node' :column [:resolved-column column])))
@@ -432,8 +432,20 @@
   ([rel env params]
    (sel/format-query env rel params)))
 
+(defn process-insert-data [data]
+  (reduce-kv
+    (fn [m k v]
+      (if v
+        (assoc m k (s/conform ::value-expression v))
+        (assoc m k v)))
+    {}
+    data))
+
 (defn get-insert-query [insertable env data]
-  (ins/format-query env insertable data))
+  (let [processed-data (if (map? data)
+                         (process-insert-data data)
+                         (mapv process-insert-data data))]
+    (ins/format-query env insertable processed-data)))
 
 (defn get-update-query [updatable env params]
   (upd/format-query env updatable params))
@@ -448,13 +460,13 @@
       (throw (ex-info (str operator " requires projected columns to match.") {:left-relation rel1 :right-relation rel2})))
     (let [rel1-name (get-in rel1 [:spec :name])
           rel2-name (get-in rel2 [:spec :name])
-          rel-name (if (= rel1-name rel2-name) rel1-name (str rel1-name "__" rel2-name))
-          rel1-pk (get-in rel1 [:spec :pk])
-          rel2-pk (get-in rel2 [:spec :pk])
-          query (fn [env]
-                  (let [[query1 & params1] (get-select-query rel1 env)
-                        [query2 & params2] (get-select-query rel2 env)]
-                    (vec (concat [(str query1 " " operator " " query2)] params1 params2))))]
+          rel-name  (if (= rel1-name rel2-name) rel1-name (str rel1-name "__" rel2-name))
+          rel1-pk   (get-in rel1 [:spec :pk])
+          rel2-pk   (get-in rel2 [:spec :pk])
+          query     (fn [env]
+                      (let [[query1 & params1] (get-select-query rel1 env)
+                            [query2 & params2] (get-select-query rel2 env)]
+                        (vec (concat [(str query1 " " operator " " query2)] params1 params2))))]
       {:name rel-name
        :pk (when (= rel1-pk rel2-pk) rel1-pk)
        :columns rel1-cols
@@ -491,24 +503,24 @@
     (-writeable-returning this projection))
   IInsertable
   (-on-conflict-do [this action conflict-target updates where-expression]
-    (let [excluded (assoc-in this [:spec :name] "EXCLUDED")
-          this' (dissoc this :joins)
-          this'' (if updates (assoc this' :joins {:excluded {:relation excluded}}) this')
+    (let [excluded                  (assoc-in this [:spec :name] "EXCLUDED")
+          this'                     (dissoc this :joins)
+          this''                    (if updates (assoc this' :joins {:excluded {:relation excluded}}) this')
           processed-conflict-target (when conflict-target
                                       (->> conflict-target
                                         (s/conform ::conflict-target)
                                         (process-conflict-target this')
                                         process-on-conflict-column-references))
-          processed-updates (when updates
-                              (->> updates
-                                (s/conform ::updates)
-                                (filter (fn [[k _]] (contains? (:aliases->ids this'') k)))
-                                (map (fn [[k v]] [k (process-value-expression this'' v)]))
-                                (into {})))
-          where (when where-expression
-                  (-> this'
-                    (process-value-expression (s/conform ::value-expression where-expression))
-                    process-on-conflict-column-references))]
+          processed-updates         (when updates
+                                      (->> updates
+                                        (s/conform ::updates)
+                                        (filter (fn [[k _]] (contains? (:aliases->ids this'') k)))
+                                        (map (fn [[k v]] [k (process-value-expression this'' v)]))
+                                        (into {})))
+          where                     (when where-expression
+                                      (-> this'
+                                        (process-value-expression (s/conform ::value-expression where-expression))
+                                        process-on-conflict-column-references))]
       (when
         (and (= :on-constraint (first processed-conflict-target))
           where)
@@ -569,7 +581,7 @@
                       (assoc join-rel :parent this)
                       join-rel)
           with-join (assoc-in this [:joins join-alias] {:relation join-rel' :type join-type})
-          join-on' (process-value-expression with-join (s/conform ::value-expression join-on))]
+          join-on'  (process-value-expression with-join (s/conform ::value-expression join-on))]
       (assoc-in with-join [:joins join-alias :on] join-on')))
   (-having [this having-expression]
     (and-predicate this :having having-expression))
@@ -589,7 +601,7 @@
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
     (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-expression))
-          id (keyword (gensym "column-"))]
+          id               (keyword (gensym "column-"))]
       (-> this
         (assoc-in [:columns id] {:type :computed
                                  :value-expression processed-extend})
@@ -600,7 +612,7 @@
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
     (let [processed-agg (process-value-expression this (s/conform ::value-expression agg-expression))
-          id (keyword (gensym "column-"))]
+          id            (keyword (gensym "column-"))]
       (-> this
         (assoc-in [:columns id] {:type :aggregate
                                  :value-expression processed-agg})
@@ -610,10 +622,10 @@
   (-extend-with-window [this col-name window-expression partitions orders]
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
-    (let [processed-window (process-value-expression this [:function-call (s/conform ::function-call window-expression)])
+    (let [processed-window     (process-value-expression this [:function-call (s/conform ::function-call window-expression)])
           processed-partitions (when partitions (resolve-columns this (s/conform ::column-list partitions)))
-          processed-orders (when orders (process-orders this (s/conform ::orders orders)))
-          id (keyword (gensym "column-"))]
+          processed-orders     (when orders (process-orders this (s/conform ::orders orders)))
+          id                   (keyword (gensym "column-"))]
       (-> this
         (assoc-in [:columns id] {:type :window
                                  :value-expression processed-window
@@ -1003,7 +1015,7 @@
   (let [columns (get-in rel [:spec :columns])]
     (reduce
       (fn [acc col]
-        (let [id (keyword (gensym "column-"))
+        (let [id    (keyword (gensym "column-"))
               alias (col->alias col)]
           (-> acc
             (assoc-in [:columns id] {:type :concrete :name col})
@@ -1024,7 +1036,7 @@
   :ret ::relation)
 
 (defn with-default-pk [rel]
-  (let [pk (as-vec (get-in rel [:spec :pk]))
+  (let [pk         (as-vec (get-in rel [:spec :pk]))
         pk-aliases (map col->alias pk)]
     (assoc rel :pk (mapv #(get-in rel [:aliases->ids %]) pk-aliases))))
 
@@ -1040,7 +1052,7 @@
                    (conj acc col-id)
                    (throw (ex-info-missing-column rel col)))))
              []
-              pk-cols)]
+             pk-cols)]
     (assoc rel :pk pk)))
 
 (s/fdef with-pk
@@ -1107,7 +1119,7 @@
   :ret ::relation)
 
 (defn ->writeable [constructor rel]
-	(when (nil? rel)
+  (when (nil? rel)
     (throw (ex-info "Invalid relation" {:relation rel})))
   (if (get-in rel [:spec :is-insertable-into])
     (-> (constructor (:spec rel))
