@@ -90,7 +90,13 @@
       sort
       vec)))
 
-(defn with-values [acc env insertable-columns data]
+(defn with-col-value [acc env insertable col-value]
+  (let [{:keys [query params]} (sel/compile-value-expression sel/empty-acc env insertable col-value)]
+    (-> acc
+      (update :params into params)
+      (update :query conj (str "(" (str/join " " query) ")")))))
+
+(defn with-values [acc env insertable insertable-columns data]
   (let [{:keys [query params]}
         (reduce
           (fn [acc' entry]
@@ -99,9 +105,7 @@
                     (fn [entry-acc col]
                       (let [col-value (get entry col)]
                         (if col-value
-                          (-> entry-acc
-                            (update :query conj "?")
-                            (update :params conj col-value))
+                          (with-col-value entry-acc env insertable col-value)
                           (update entry-acc :query conj "DEFAULT"))))
                     {:query [] :params []}
                     insertable-columns)]
@@ -115,8 +119,8 @@
       (update :params into params))))
 
 (defn with-columns-and-values [acc env insertable data]
-  (let [data'              (if (map? data) [data] data)
-        insertable-columns (get-insertable-columns insertable data')
+  (let [data'                    (if (map? data) [data] data)
+        insertable-columns       (get-insertable-columns insertable data')
         insertable-columns-names (map
                                    (fn [c]
                                      (let [col-id   (get-in insertable [:aliases->ids c])
@@ -126,7 +130,7 @@
     (-> acc
       (update :query conj (str "(" (str/join ", " insertable-columns-names) ")"))
       (update :query conj "VALUES")
-      (with-values env insertable-columns data'))))
+      (with-values env insertable insertable-columns data'))))
 
 (defn format-query [env insertable data]
   (let [{:keys [query params]} (-> {:query ["INSERT INTO"

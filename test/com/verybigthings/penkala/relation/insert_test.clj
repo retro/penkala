@@ -1,18 +1,15 @@
 (ns com.verybigthings.penkala.relation.insert-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [com.verybigthings.penkala.next-jdbc :refer [insert! select!]]
             [com.verybigthings.penkala.relation :as r]
-            [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
-            [com.verybigthings.penkala.decomposition :refer [map->DecompositionSchema]]
-            [jsonista.core :as j])
-  (:import [org.postgresql.util PSQLException]))
+            [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]))
 
 (use-fixtures :each (partial th/reset-db-fixture "updatables"))
 
 (deftest it-inserts-a-record-and-returns-a-map
-  (let [normal-pk (:normal-pk *env*)
+  (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (r/->insertable normal-pk)
-        res (insert! *env* ins-normal-pk {:field-1 "epsilon"})]
+        res           (insert! *env* ins-normal-pk {:field-1 "epsilon"})]
     (is (= #:normal-pk{:field-1 "epsilon"
                        :json-field nil
                        :field-2 nil
@@ -21,24 +18,24 @@
           (dissoc res :normal-pk/id)))))
 
 (deftest it-inserts-a-record-and-returns-map-with-custom-projection
-  (let [normal-pk (:normal-pk *env*)
+  (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (-> (r/->insertable normal-pk)
                         (r/returning [:field-1]))
-        res (insert! *env* ins-normal-pk {:field-1 "epsilon"})]
+        res           (insert! *env* ins-normal-pk {:field-1 "epsilon"})]
     (is (= #:normal-pk{:field-1 "epsilon"}
           (dissoc res :normal-pk/id)))))
 
 (deftest it-inserts-a-record-and-returns-a-result-without-projection
-  (let [normal-pk (:normal-pk *env*)
+  (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (-> (r/->insertable normal-pk)
                         (r/returning nil))
-        res (insert! *env* ins-normal-pk {:field-1 "epsilon111"})]
+        res           (insert! *env* ins-normal-pk {:field-1 "epsilon111"})]
     (is (= #:next.jdbc{:update-count 1} res))))
 
 (deftest it-inserts-multiple-normal-ok-records-and-returns-a-vector-of-results
-  (let [normal-pk (:normal-pk *env*)
+  (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (r/->insertable normal-pk)
-        res (insert! *env* ins-normal-pk [{:field-1 "zeta"} {:field-1 "eta"}])]
+        res           (insert! *env* ins-normal-pk [{:field-1 "zeta"} {:field-1 "eta"}])]
     (is (= [#:normal-pk{:field-1 "zeta"
                         :json-field nil
                         :field-2 nil
@@ -52,10 +49,10 @@
           (mapv #(dissoc % :normal-pk/id) res)))))
 
 (deftest it-combines-keys-of-partial-maps-on-insert
-  (let [normal-pk (:normal-pk *env*)
+  (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (r/->insertable normal-pk)
-        res (insert! *env* ins-normal-pk [{:field-1 "theta" :field-2 "ateht"}
-                                          {:field-1 "iota" :array-field ["one" "two"]}])]
+        res           (insert! *env* ins-normal-pk [{:field-1 "theta" :field-2 "ateht"}
+                                                    {:field-1 "iota" :array-field ["one" "two"]}])]
     (is (= [#:normal-pk{:field-1 "theta"
                         :json-field nil
                         :field-2 "ateht"
@@ -69,7 +66,7 @@
           (mapv #(dissoc % :normal-pk/id) res)))))
 
 (deftest it-throws-when-a-partial-record-excludes-a-constrained-field
-  (let [normal-pk (:normal-pk *env*)
+  (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (r/->insertable normal-pk)]
     (is (thrown? org.postgresql.util.PSQLException
           (insert! *env* ins-normal-pk [{:field-1 "ephemeral"}
@@ -81,9 +78,9 @@
                                              {:field-2 "insufficient"}]))))
 
 (deftest it-inserts-array-fields
-  (let [normal-pk (:normal-pk *env*)
+  (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (r/->insertable normal-pk)
-        res (insert! *env* ins-normal-pk {:field-1 "kappa" :array-field ["one" "two"]})]
+        res           (insert! *env* ins-normal-pk {:field-1 "kappa" :array-field ["one" "two"]})]
     (is (= #:normal-pk{:field-1 "kappa"
                        :json-field nil
                        :field-2 nil
@@ -92,9 +89,9 @@
           (dissoc res :normal-pk/id)))))
 
 (deftest it-inserts-empty-array-fields
-  (let [normal-pk (:normal-pk *env*)
+  (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (r/->insertable normal-pk)
-        res (insert! *env* ins-normal-pk {:field-1 "mu" :array-field []})]
+        res           (insert! *env* ins-normal-pk {:field-1 "mu" :array-field []})]
     (is (= #:normal-pk{:field-1 "mu"
                        :json-field nil
                        :field-2 nil
@@ -103,9 +100,9 @@
           (dissoc res :normal-pk/id)))))
 
 (deftest it-inserts-json-arrays
-  (let [normal-pk (:normal-pk *env*)
+  (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (r/->insertable normal-pk)
-        res (insert! *env* ins-normal-pk {:field-1 "nu" :json-field ["one" "two" "three"]})]
+        res           (insert! *env* ins-normal-pk {:field-1 "nu" :json-field ["one" "two" "three"]})]
     (is (= #:normal-pk{:field-1 "nu"
                        :json-field ["one" "two" "three"]
                        :field-2 nil
@@ -114,23 +111,23 @@
           (dissoc res :normal-pk/id)))))
 
 (deftest it-inserts-a-record-with-uuid-pk
-  (let [uuid-pk (:uuid-pk *env*)
+  (let [uuid-pk     (:uuid-pk *env*)
         ins-uuid-pk (r/->insertable uuid-pk)
-        res (insert! *env* ins-uuid-pk {:field-1 "a"})]
+        res         (insert! *env* ins-uuid-pk {:field-1 "a"})]
     (is (= #:uuid-pk{:field-1 "a"}
           (dissoc res :uuid-pk/id)))))
 
 (deftest it-inserts-a-record-into-a-table-with-a-cased-name
-  (let [cased-name (:cased-name *env*)
+  (let [cased-name     (:cased-name *env*)
         ins-cased-name (r/->insertable cased-name)
-        res (insert! *env* ins-cased-name {:field-1 "b"})]
+        res            (insert! *env* ins-cased-name {:field-1 "b"})]
     (is (= #:cased-name{:field-1 "b"}
           (dissoc res :cased-name/id)))))
 
 (deftest it-inserts-into-a-qualifying-view
-  (let [normal-as (:normal-as *env*)
+  (let [normal-as     (:normal-as *env*)
         ins-normal-as (r/->insertable normal-as)
-        res (insert! *env* ins-normal-as {:field-1 "aardvark"})]
+        res           (insert! *env* ins-normal-as {:field-1 "aardvark"})]
     (is (= #:normal-as{:field-1 "aardvark"
                        :array-field nil
                        :array-of-json nil
@@ -139,9 +136,9 @@
           (dissoc res :normal-as/id)))))
 
 (deftest it-inserts-into-a-view-and-returns-a-result-outside-the-scope
-  (let [normal-as (:normal-as *env*)
+  (let [normal-as     (:normal-as *env*)
         ins-normal-as (r/->insertable normal-as)
-        res (insert! *env* ins-normal-as {:field-1 "pangolin"})]
+        res           (insert! *env* ins-normal-as {:field-1 "pangolin"})]
     (is (= #:normal-as{:field-1 "pangolin"
                        :array-field nil
                        :array-of-json nil
@@ -158,11 +155,11 @@
           (r/->insertable normal-as)))))
 
 (deftest it-throws-if-invalid-insertable
-	(is (thrown? clojure.lang.ExceptionInfo
-    (r/->insertable :invalid-relation))))
+  (is (thrown? clojure.lang.ExceptionInfo
+        (r/->insertable :invalid-relation))))
 
 (deftest it-can-handle-conflicts-with-nothing
-  (let [things (:things *env*)
+  (let [things     (:things *env*)
         ins-things (r/->insertable things)]
     (insert! *env* ins-things {:stuff "stuff" :name "NAME"})
     (let [res (insert! *env*
@@ -185,7 +182,7 @@
       (is (nil? res)))))
 
 (deftest it-can-handle-conflicts-with-nothing-with-explicit-on-constraint
-  (let [things (:things *env*)
+  (let [things     (:things *env*)
         ins-things (r/->insertable things)]
     (insert! *env* ins-things {:stuff "stuff" :name "NAME"})
     (let [res (insert! *env*
@@ -202,7 +199,7 @@
 
 
 (deftest it-can-handle-conflicts-with-update
-  (let [things (:things *env*)
+  (let [things     (:things *env*)
         ins-things (r/->insertable things)]
     (insert! *env* ins-things {:stuff "stuff" :name "NAME"})
     (let [res (insert! *env*
@@ -232,7 +229,7 @@
             res)))))
 
 (deftest it-can-handle-conflicts-with-update-with-explicit-on-constraint
-  (let [things (:things *env*)
+  (let [things     (:things *env*)
         ins-things (r/->insertable things)]
     (insert! *env* ins-things {:stuff "stuff" :name "NAME"})
     (let [res (insert! *env*
@@ -249,3 +246,10 @@
                       :name "NAME1"
                       :id 1}
             res)))))
+
+(deftest it-can-use-value-expression-for-inserts
+  (let [things     (:things *env*)
+        ins-things (r/->insertable things)
+        res        (insert! *env* ins-things {:stuff [:lower "STUFF"] :name [:upper "name"]})]
+    (is (= #:things{:stuff "stuff" :name "NAME" :id 1}
+          res))))
