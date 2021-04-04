@@ -118,8 +118,9 @@
       (update :query conj (str/join ", " query))
       (update :params into params))))
 
-(defn with-columns-and-values [acc env insertable data]
-  (let [data'                    (if (map? data) [data] data)
+(defn with-columns-and-values [acc env insertable]
+  (let [data                     (:inserts insertable)
+        data'                    (if (map? data) [data] data)
         insertable-columns       (get-insertable-columns insertable data')
         insertable-columns-names (map
                                    (fn [c]
@@ -132,11 +133,11 @@
       (update :query conj "VALUES")
       (with-values env insertable insertable-columns data'))))
 
-(defn format-query [env insertable data]
+(defn format-query [env insertable]
   (let [{:keys [query params]} (-> {:query ["INSERT INTO"
                                             (get-schema-qualified-relation-name env insertable)]
                                     :params []}
-                                 (with-columns-and-values env insertable data)
+                                 (with-columns-and-values env insertable)
                                  (with-on-conflict env insertable)
                                  (with-returning env insertable))]
     (into [(str/join " " query)] params)))

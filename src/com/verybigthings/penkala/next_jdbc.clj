@@ -156,13 +156,14 @@
        res))))
 
 (defn insert!
-  ([env insertable data] (insert! env insertable data {}))
-  ([env insertable data decomposition-schema-overrides]
+  ([env insertable inserts] (insert! env insertable inserts {}))
+  ([env insertable inserts decomposition-schema-overrides]
    (let [db          (::env/db env)
-         insertable' (if (keyword? insertable)
-                       (-> env (validate-relation insertable) (r/->insertable))
-                       insertable)
-         sqlvec      (r/get-insert-query insertable' env data)]
+         insertable' (-> (if (keyword? insertable)
+                           (-> env (validate-relation insertable) (r/->insertable))
+                           insertable)
+                       (r/with-inserts inserts))
+         sqlvec      (r/get-insert-query insertable' env)]
      (if (:projection insertable')
        (let [;; If we're using insertable with on-conflict-do-update, an implicit join to the "excluded"
              ;; table is created. This will remove it so it's not picked up by the decomposition schema
@@ -170,7 +171,7 @@
              decomposition-schema (d/infer-schema (dissoc insertable' :joins) decomposition-schema-overrides)
              res                  (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
                                     (d/decompose decomposition-schema))]
-         (if (map? data) (first res) res))
+         (if (map? inserts) (first res) res))
        (jdbc/execute-one! db sqlvec default-next-jdbc-options)))))
 
 (defn update!
