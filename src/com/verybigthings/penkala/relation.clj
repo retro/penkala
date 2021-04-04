@@ -39,6 +39,7 @@
   (-returning [this projection]))
 
 (defprotocol IInsertable
+  (-with-inserts [this inserts])
   (-on-conflict-do [this action conflicts update where-expression]))
 
 (defprotocol IUpdatable
@@ -250,6 +251,9 @@
 (s/def ::updates
   (s/map-of keyword? ::value-expression))
 
+(s/def ::inserts
+  (s/map-of keyword? ::value-expression))
+
 (s/def ::orders
   (s/coll-of ::order))
 
@@ -432,20 +436,9 @@
   ([rel env params]
    (sel/format-query env rel params)))
 
-(defn process-insert-data [data]
-  (reduce-kv
-    (fn [m k v]
-      (if v
-        (assoc m k (s/conform ::value-expression v))
-        (assoc m k v)))
-    {}
-    data))
 
-(defn get-insert-query [insertable env data]
-  (let [processed-data (if (map? data)
-                         (process-insert-data data)
-                         (mapv process-insert-data data))]
-    (ins/format-query env insertable processed-data)))
+(defn get-insert-query [insertable env]
+  (ins/format-query env insertable))
 
 (defn get-update-query [updatable env params]
   (upd/format-query env updatable params))
@@ -497,11 +490,25 @@
       (last conflict-target)
       conflict-target)))
 
+(defn process-inserts [inserts]
+  (reduce-kv
+    (fn [m k v]
+      (if v
+        (assoc m k (s/conform ::value-expression v))
+        (assoc m k v)))
+    {}
+    inserts))
+
 (defrecord Insertable [spec]
   IWriteable
   (-returning [this projection]
     (-writeable-returning this projection))
   IInsertable
+  (-with-inserts [this inserts]
+    (let [processed-inserts (if (map? inserts)
+                              (process-inserts inserts)
+                              (mapv process-inserts inserts))]
+      (assoc this :inserts processed-inserts)))
   (-on-conflict-do [this action conflict-target updates where-expression]
     (let [excluded                  (assoc-in this [:spec :name] "EXCLUDED")
           this'                     (dissoc this :joins)
@@ -1083,6 +1090,13 @@
           :using-rel ::relation
           :using-alias keyword?)
   :ret ::deletable)
+
+(defn with-inserts [insertable inserts]
+  (-with-inserts insertable inserts))
+
+(s/fdef with-inserts
+  :args (s/cat :insertable ::insertable :inserts ::inserts)
+  :ret ::insertable)
 
 (defn on-conflict-do-nothing
   ([insertable] (on-conflict-do-nothing insertable nil nil))
