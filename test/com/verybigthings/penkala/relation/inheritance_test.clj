@@ -15,28 +15,28 @@
             {:cities/id 4, :cities/name "Indianapolis", :cities/population 853173}
             {:cities/id 5, :cities/name "San Antonio", :cities/population 1469845}
             {:cities/id 6, :cities/name "Chesapeake", :cities/population 235429}]
-          (select! *env* cities)))
+           (select! *env* cities)))
     (is (= [{:cities/id 1, :cities/name "Anchorage", :cities/population 298615}
             {:cities/id 2, :cities/name "Jacksonville", :cities/population 868031}
             {:cities/id 3, :cities/name "Houston", :cities/population 2296224}
             {:cities/id 4, :cities/name "Los Angeles", :cities/population 3971883}
             {:cities/id 5, :cities/name "San Antonio", :cities/population 1469845}
             {:cities/id 6, :cities/name "Chesapeake", :cities/population 235429}]
-          (select! *env* (r/only cities))))
-    (is (= [{:capitals/id 1,
-             :capitals/name "Oklahoma City",
-             :capitals/of-state "OK",
+           (select! *env* (r/only cities))))
+    (is (= [{:capitals/id 1
+             :capitals/name "Oklahoma City"
+             :capitals/of-state "OK"
              :capitals/population 631346}
-            {:capitals/id 2,
-             :capitals/name "Phoenix",
-             :capitals/of-state "AZ",
+            {:capitals/id 2
+             :capitals/name "Phoenix"
+             :capitals/of-state "AZ"
              :capitals/population 1563025}
-            {:capitals/id 3,
-             :capitals/name "Nashville",
-             :capitals/of-state "TN",
+            {:capitals/id 3
+             :capitals/name "Nashville"
+             :capitals/of-state "TN"
              :capitals/population 654610}
-            {:capitals/id 4,
-             :capitals/name "Indianapolis",
-             :capitals/of-state "IN",
+            {:capitals/id 4
+             :capitals/name "Indianapolis"
+             :capitals/of-state "IN"
              :capitals/population 853173}]
-          (select! *env* capitals)))))
+           (select! *env* capitals)))))

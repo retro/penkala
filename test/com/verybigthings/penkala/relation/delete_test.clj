@@ -9,51 +9,51 @@
 
 (deftest it-throws-for-unexisting-relation
   (is (thrown? clojure.lang.ExceptionInfo
-        (delete! *env* :unexisting-relation))))
+               (delete! *env* :unexisting-relation))))
 
 (deftest it-deletes
   (let [products (:products *env*)
         del-products (-> (r/->deletable products)
-                        (r/where [:= :id 3]))
+                         (r/where [:= :id 3]))
         res (delete! *env* del-products)]
-    (is (= [#:products{:description nil,
-                       :tags nil,
-                       :string "three",
-                       :id 3,
-                       :specs nil,
-                       :case-name nil,
+    (is (= [#:products{:description nil
+                       :tags nil
+                       :string "three"
+                       :id 3
+                       :specs nil
+                       :case-name nil
                        :price 0.00M}]
-          (mapv #(dissoc % :products/uuid) res)))))
+           (mapv #(dissoc % :products/uuid) res)))))
 
 (deftest it-deletes-with-using
   (let [products (:products *env*)
         del-products (-> (r/->deletable products)
-                       (r/using (r/where products [:= :id 3]) :other-products)
-                       (r/where [:= :id :other-products/id]))
+                         (r/using (r/where products [:= :id 3]) :other-products)
+                         (r/where [:= :id :other-products/id]))
         res (delete! *env* del-products)]
-    (is (= [#:products{:description nil,
-                       :tags nil,
-                       :string "three",
-                       :id 3,
-                       :specs nil,
-                       :case-name nil,
+    (is (= [#:products{:description nil
+                       :tags nil
+                       :string "three"
+                       :id 3
+                       :specs nil
+                       :case-name nil
                        :price 0.00M}]
-          (mapv #(dissoc % :products/uuid) res)))))
+           (mapv #(dissoc % :products/uuid) res)))))
 
 (deftest it-deletes-with-using-multiple
   (let [products (:products *env*)
         del-products (-> (r/->deletable products)
-                       (r/using (r/where products [:= :id 3]) :other-products-1)
-                       (r/using (r/where products [:= :id 3]) :other-products-2)
-                       (r/where [:and
-                                 [:= :id :other-products-1/id]
-                                 [:= :id :other-products-2/id]]))
+                         (r/using (r/where products [:= :id 3]) :other-products-1)
+                         (r/using (r/where products [:= :id 3]) :other-products-2)
+                         (r/where [:and
+                                   [:= :id :other-products-1/id]
+                                   [:= :id :other-products-2/id]]))
         res (delete! *env* del-products)]
-    (is (= [#:products{:description nil,
-                       :tags nil,
-                       :string "three",
-                       :id 3,
-                       :specs nil,
-                       :case-name nil,
+    (is (= [#:products{:description nil
+                       :tags nil
+                       :string "three"
+                       :id 3
+                       :specs nil
+                       :case-name nil
                        :price 0.00M}]
-          (mapv #(dissoc % :products/uuid) res)))))
+           (mapv #(dissoc % :products/uuid) res)))))

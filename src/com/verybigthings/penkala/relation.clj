@@ -96,95 +96,95 @@
 
 (s/def ::connective
   (s/and
-    vector?
-    (s/cat
-      :op #(contains? #{:and :or} %)
-      :args (s/+ ::value-expression))))
+   vector?
+   (s/cat
+    :op #(contains? #{:and :or} %)
+    :args (s/+ ::value-expression))))
 
 (s/def ::negation
   (s/and
-    vector?
-    (s/cat
-      :op #(= :not %)
-      :arg1 ::value-expression)))
+   vector?
+   (s/cat
+    :op #(= :not %)
+    :arg1 ::value-expression)))
 
 (s/def ::unary-operation
   (s/and
-    vector?
-    (s/cat
-      :op (s/or
-            :operator #(contains? (:unary operations) %)
-            :wrapped-operator #(and (= Wrapped (type %)) (= :unary-operator (:subject-type %))))
-      :arg1 ::value-expression)))
+   vector?
+   (s/cat
+    :op (s/or
+         :operator #(contains? (:unary operations) %)
+         :wrapped-operator #(and (= Wrapped (type %)) (= :unary-operator (:subject-type %))))
+    :arg1 ::value-expression)))
 
 (s/def ::binary-operation
   (s/and
-    vector?
-    (s/cat
-      :op (s/or
-            :operator #(contains? (:binary operations) %)
-            :wrapped-operator #(and (= Wrapped (type %)) (= :binary-operator (:subject-type %))))
-      :arg1 ::value-expression
-      :arg2 ::value-expression)))
+   vector?
+   (s/cat
+    :op (s/or
+         :operator #(contains? (:binary operations) %)
+         :wrapped-operator #(and (= Wrapped (type %)) (= :binary-operator (:subject-type %))))
+    :arg1 ::value-expression
+    :arg2 ::value-expression)))
 
 (s/def ::ternary-operation
   (s/and
-    vector?
-    (s/cat
-      :op (s/or
-            :operator #(contains? (:ternary operations) %)
-            :wrapped-operator #(and (= Wrapped (type %)) (= :ternary-operator (:subject-type %))))
-      :arg1 ::value-expression
-      :arg2 ::value-expression
-      :arg3 ::value-expression)))
+   vector?
+   (s/cat
+    :op (s/or
+         :operator #(contains? (:ternary operations) %)
+         :wrapped-operator #(and (= Wrapped (type %)) (= :ternary-operator (:subject-type %))))
+    :arg1 ::value-expression
+    :arg2 ::value-expression
+    :arg3 ::value-expression)))
 
 (s/def ::inclusion-operation
   (s/and
-    vector?
-    (s/cat
-      :op #(contains? #{:in :not-in} %)
-      :column ::value-expression
-      :in (s/or
-            :relation ::relation
-            :value-expressions (s/coll-of ::value-expression)))))
+   vector?
+   (s/cat
+    :op #(contains? #{:in :not-in} %)
+    :column ::value-expression
+    :in (s/or
+         :relation ::relation
+         :value-expressions (s/coll-of ::value-expression)))))
 
 (s/def ::cast
   (s/and
-    vector?
-    (s/cat
-      :fn #(= :cast %)
-      :value ::value-expression
-      :cast-type string?)))
+   vector?
+   (s/cat
+    :fn #(= :cast %)
+    :value ::value-expression
+    :cast-type string?)))
 
 (s/def ::function-call
   (s/and
-    vector?
-    (s/cat
-      :fn #(and (keyword? %) (not (contains? all-operations %)))
-      :args (s/+ ::value-expression))))
+   vector?
+   (s/cat
+    :fn #(and (keyword? %) (not (contains? all-operations %)))
+    :args (s/+ ::value-expression))))
 
 (s/def ::parent-scope
   (s/and
-    vector?
-    (s/cat
-      :op #(= :parent-scope %)
-      :args (s/+ ::value-expression))))
+   vector?
+   (s/cat
+    :op #(= :parent-scope %)
+    :args (s/+ ::value-expression))))
 
 (s/def ::fragment-literal
   (s/and
-    vector?
-    (s/cat
-      :op #(= :fragment %)
-      :fragment-literal string?
-      :args (s/+ ::value-expression))))
+   vector?
+   (s/cat
+    :op #(= :fragment %)
+    :fragment-literal string?
+    :args (s/+ ::value-expression))))
 
 (s/def ::fragment-fn
   (s/and
-    vector?
-    (s/cat
-      :op #(= :fragment %)
-      :fragment-fn fn?
-      :args (s/+ ::value-expression))))
+   vector?
+   (s/cat
+    :op #(= :fragment %)
+    :fragment-fn fn?
+    :args (s/+ ::value-expression))))
 
 (s/def ::on-constraint
   (s/tuple #(= :on-constraint %) string?))
@@ -194,8 +194,8 @@
 
 (s/def ::conflict-target
   (s/or
-    :on-constraint ::on-constraint
-    :value-expressions ::value-expressions))
+   :on-constraint ::on-constraint
+   :value-expressions ::value-expressions))
 
 (s/def ::relation
   #(satisfies? IRelation %))
@@ -226,8 +226,8 @@
 
 (s/def ::column-identifier
   (s/or
-    :keyword keyword?
-    :wrapped-column ::wrapped-column))
+   :keyword keyword?
+   :wrapped-column ::wrapped-column))
 
 (s/def ::order-direction
   #(contains? #{:asc :desc} %))
@@ -237,16 +237,16 @@
 
 (s/def ::order
   (s/or
-    :column-identifier ::column-identifier
-    :column (s/cat
-              :column-identifier ::column-identifier)
-    :column-direction (s/cat
-                        :column-identifier ::column-identifier
-                        :order-direction ::order-direction)
-    :column-direction-nulls (s/cat
-                              :column-identifier ::column-identifier
-                              :order-direction ::order-direction
-                              :order-nulls ::order-nulls)))
+   :column-identifier ::column-identifier
+   :column (s/cat
+            :column-identifier ::column-identifier)
+   :column-direction (s/cat
+                      :column-identifier ::column-identifier
+                      :order-direction ::order-direction)
+   :column-direction-nulls (s/cat
+                            :column-identifier ::column-identifier
+                            :order-direction ::order-direction
+                            :order-nulls ::order-nulls)))
 
 (s/def ::updates
   (s/map-of keyword? ::value-expression))
@@ -259,25 +259,25 @@
 
 (s/def ::value-expression
   (s/or
-    :boolean boolean?
-    :keyword keyword?
-    :relation ::relation
-    :connective ::connective
-    :negation ::negation
-    :unary-operation ::unary-operation
-    :binary-operation ::binary-operation
-    :ternary-operation ::ternary-operation
-    :inclusion-operation ::inclusion-operation
-    :parent-scope ::parent-scope
-    :fragment-fn ::fragment-fn
-    :fragment-literal ::fragment-literal
-    :cast ::cast
-    :function-call ::function-call
-    :wrapped-literal ::wrapped-literal
-    :wrapped-column ::wrapped-column
-    :wrapped-param ::wrapped-param
-    :wrapped-value ::wrapped-value
-    :value any?))
+   :boolean boolean?
+   :keyword keyword?
+   :relation ::relation
+   :connective ::connective
+   :negation ::negation
+   :unary-operation ::unary-operation
+   :binary-operation ::binary-operation
+   :ternary-operation ::ternary-operation
+   :inclusion-operation ::inclusion-operation
+   :parent-scope ::parent-scope
+   :fragment-fn ::fragment-fn
+   :fragment-literal ::fragment-literal
+   :cast ::cast
+   :function-call ::function-call
+   :wrapped-literal ::wrapped-literal
+   :wrapped-column ::wrapped-column
+   :wrapped-param ::wrapped-param
+   :wrapped-value ::wrapped-value
+   :value any?))
 
 (s/def ::column-list
   (s/coll-of ::column-identifier))
@@ -337,21 +337,21 @@
 
       :unary-operation
       (-> node
-        (update-in [1 :op] extract-operator)
-        (update-in [1 :arg1] #(process-value-expression rel %)))
+          (update-in [1 :op] extract-operator)
+          (update-in [1 :arg1] #(process-value-expression rel %)))
 
       :binary-operation
       (-> node
-        (update-in [1 :op] extract-operator)
-        (update-in [1 :arg1] #(process-value-expression rel %))
-        (update-in [1 :arg2] #(process-value-expression rel %)))
+          (update-in [1 :op] extract-operator)
+          (update-in [1 :arg1] #(process-value-expression rel %))
+          (update-in [1 :arg2] #(process-value-expression rel %)))
 
       :ternary-operation
       (-> node
-        (update-in [1 :op] extract-operator)
-        (update-in [1 :arg1] #(process-value-expression rel %))
-        (update-in [1 :arg2] #(process-value-expression rel %))
-        (update-in [1 :arg3] #(process-value-expression rel %)))
+          (update-in [1 :op] extract-operator)
+          (update-in [1 :arg1] #(process-value-expression rel %))
+          (update-in [1 :arg2] #(process-value-expression rel %))
+          (update-in [1 :arg3] #(process-value-expression rel %)))
 
       :parent-scope
       (let [parent (:parent rel)]
@@ -365,40 +365,40 @@
                   (update in 1 (fn [args] (mapv #(process-value-expression rel %) args)))
                   in)]
         (-> node
-          (update-in [1 :column] #(process-value-expression rel %))
-          (assoc-in [1 :in] in')))
+            (update-in [1 :column] #(process-value-expression rel %))
+            (assoc-in [1 :in] in')))
       node)))
 
 (defn process-projection [rel node-list]
   (reduce
-    (fn [acc [_ node]]
-      (let [column (resolve-column rel node)]
-        (if (or (nil? column) (-> column :path seq))
-          (throw (ex-info-missing-column rel node))
-          (conj acc (if (keyword? node) node (:subject node))))))
-    #{}
-    node-list))
+   (fn [acc [_ node]]
+     (let [column (resolve-column rel node)]
+       (if (or (nil? column) (-> column :path seq))
+         (throw (ex-info-missing-column rel node))
+         (conj acc (if (keyword? node) node (:subject node))))))
+   #{}
+   node-list))
 
 (defn process-orders [rel orders]
   (map
-    (fn [[node-type node]]
-      (let [node'             (if (= :column-identifier node-type) {:column-identifier node} node)
-            column-identifier (-> node' :column-identifier second)
-            column            (resolve-column rel column-identifier)]
-        (when (nil? column)
-          (throw (ex-info-missing-column rel column-identifier)))
-        (assoc node' :column [:resolved-column column])))
-    orders))
+   (fn [[node-type node]]
+     (let [node'             (if (= :column-identifier node-type) {:column-identifier node} node)
+           column-identifier (-> node' :column-identifier second)
+           column            (resolve-column rel column-identifier)]
+       (when (nil? column)
+         (throw (ex-info-missing-column rel column-identifier)))
+       (assoc node' :column [:resolved-column column])))
+   orders))
 
 (defn resolve-columns [rel columns]
   (reduce
-    (fn [acc [_ node]]
-      (let [column (resolve-column rel node)]
-        (if (or (nil? column))
-          (throw (ex-info-missing-column rel node))
-          (conj acc [:resolved-column column]))))
-    []
-    columns))
+   (fn [acc [_ node]]
+     (let [column (resolve-column rel node)]
+       (if (or (nil? column))
+         (throw (ex-info-missing-column rel node))
+         (conj acc [:resolved-column column]))))
+   []
+   columns))
 
 (defn and-predicate [rel predicate-type predicate-expression]
   (s/assert ::value-expression predicate-expression)
@@ -420,15 +420,15 @@
   ([acc rel path-prefix]
    (let [acc'
          (reduce
-           (fn [acc col]
-             (conj acc (path-prefix-join (map name (conj path-prefix col)))))
-           acc
-           (:projection rel))]
+          (fn [acc col]
+            (conj acc (path-prefix-join (map name (conj path-prefix col)))))
+          acc
+          (:projection rel))]
      (reduce-kv
-       (fn [acc join-alias join]
-         (get-projected-columns acc (:relation join) (conj path-prefix join-alias)))
-       acc'
-       (:joins rel)))))
+      (fn [acc join-alias join]
+        (get-projected-columns acc (:relation join) (conj path-prefix join-alias)))
+      acc'
+      (:joins rel)))))
 
 (defn get-select-query
   ([rel env]
@@ -475,11 +475,11 @@
 
 (defn process-on-conflict-column-references [value]
   (prewalk
-    (fn [val]
-      (if (and (vector? val) (= :resolved-column (first val)))
-        [:literal (-> val second :name)]
-        val))
-    value))
+   (fn [val]
+     (if (and (vector? val) (= :resolved-column (first val)))
+       [:literal (-> val second :name)]
+       val))
+   value))
 
 (defn process-conflict-target [insertable conflict-target]
   (let [[conflict-target-type & _] conflict-target]
@@ -492,12 +492,12 @@
 
 (defn process-inserts [inserts]
   (reduce-kv
-    (fn [m k v]
-      (if v
-        (assoc m k (s/conform ::value-expression v))
-        (assoc m k v)))
-    {}
-    inserts))
+   (fn [m k v]
+     (if v
+       (assoc m k (s/conform ::value-expression v))
+       (assoc m k v)))
+   {}
+   inserts))
 
 (defrecord Insertable [spec]
   IWriteable
@@ -515,22 +515,22 @@
           this''                    (if updates (assoc this' :joins {:excluded {:relation excluded}}) this')
           processed-conflict-target (when conflict-target
                                       (->> conflict-target
-                                        (s/conform ::conflict-target)
-                                        (process-conflict-target this')
-                                        process-on-conflict-column-references))
+                                           (s/conform ::conflict-target)
+                                           (process-conflict-target this')
+                                           process-on-conflict-column-references))
           processed-updates         (when updates
                                       (->> updates
-                                        (s/conform ::updates)
-                                        (filter (fn [[k _]] (contains? (:aliases->ids this'') k)))
-                                        (map (fn [[k v]] [k (process-value-expression this'' v)]))
-                                        (into {})))
+                                           (s/conform ::updates)
+                                           (filter (fn [[k _]] (contains? (:aliases->ids this'') k)))
+                                           (map (fn [[k v]] [k (process-value-expression this'' v)]))
+                                           (into {})))
           where                     (when where-expression
                                       (-> this'
-                                        (process-value-expression (s/conform ::value-expression where-expression))
-                                        process-on-conflict-column-references))]
+                                          (process-value-expression (s/conform ::value-expression where-expression))
+                                          process-on-conflict-column-references))]
       (when
-        (and (= :on-constraint (first processed-conflict-target))
-          where)
+       (and (= :on-constraint (first processed-conflict-target))
+            where)
         (throw (ex-info "ON CONSTRAINT can't be used with a WHERE clause" {:insertable this
                                                                            :where where-expression
                                                                            :conflict-target conflict-target})))
@@ -555,10 +555,10 @@
   IUpdatable
   (-with-updates [this updates]
     (let [processed-updates (->> updates
-                              (s/conform ::updates)
-                              (filter (fn [[k _]] (contains? (:aliases->ids this) k)))
-                              (map (fn [[k v]] [k (process-value-expression this v)]))
-                              (into {}))]
+                                 (s/conform ::updates)
+                                 (filter (fn [[k _]] (contains? (:aliases->ids this) k)))
+                                 (map (fn [[k v]] [k (process-value-expression this v)]))
+                                 (into {}))]
       (assoc this :updates processed-updates)))
   (-from [this from-rel from-alias]
     (assoc-in this [:joins from-alias] {:relation from-rel})))
@@ -599,8 +599,8 @@
       (when (nil? id)
         (throw (ex-info-missing-column this prev-col-name)))
       (let [this' (-> this
-                    (assoc-in [:ids->aliases id] next-col-name)
-                    (update :aliases->ids #(-> % (dissoc prev-col-name) (assoc next-col-name id))))]
+                      (assoc-in [:ids->aliases id] next-col-name)
+                      (update :aliases->ids #(-> % (dissoc prev-col-name) (assoc next-col-name id))))]
         (if (contains? (:projection this') prev-col-name)
           (update this' :projection #(-> % (disj prev-col-name) (conj next-col-name)))
           this'))))
@@ -610,22 +610,22 @@
     (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-expression))
           id               (keyword (gensym "column-"))]
       (-> this
-        (assoc-in [:columns id] {:type :computed
-                                 :value-expression processed-extend})
-        (assoc-in [:ids->aliases id] col-name)
-        (assoc-in [:aliases->ids col-name] id)
-        (update :projection conj col-name))))
+          (assoc-in [:columns id] {:type :computed
+                                   :value-expression processed-extend})
+          (assoc-in [:ids->aliases id] col-name)
+          (assoc-in [:aliases->ids col-name] id)
+          (update :projection conj col-name))))
   (-extend-with-aggregate [this col-name agg-expression]
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
     (let [processed-agg (process-value-expression this (s/conform ::value-expression agg-expression))
           id            (keyword (gensym "column-"))]
       (-> this
-        (assoc-in [:columns id] {:type :aggregate
-                                 :value-expression processed-agg})
-        (assoc-in [:ids->aliases id] col-name)
-        (assoc-in [:aliases->ids col-name] id)
-        (update :projection conj col-name))))
+          (assoc-in [:columns id] {:type :aggregate
+                                   :value-expression processed-agg})
+          (assoc-in [:ids->aliases id] col-name)
+          (assoc-in [:aliases->ids col-name] id)
+          (update :projection conj col-name))))
   (-extend-with-window [this col-name window-expression partitions orders]
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
@@ -634,13 +634,13 @@
           processed-orders     (when orders (process-orders this (s/conform ::orders orders)))
           id                   (keyword (gensym "column-"))]
       (-> this
-        (assoc-in [:columns id] {:type :window
-                                 :value-expression processed-window
-                                 :partition-by processed-partitions
-                                 :order-by processed-orders})
-        (assoc-in [:ids->aliases id] col-name)
-        (assoc-in [:aliases->ids col-name] id)
-        (update :projection conj col-name))))
+          (assoc-in [:columns id] {:type :window
+                                   :value-expression processed-window
+                                   :partition-by processed-partitions
+                                   :order-by processed-orders})
+          (assoc-in [:ids->aliases id] col-name)
+          (assoc-in [:aliases->ids col-name] id)
+          (update :projection conj col-name))))
   (-select [this projection]
     (let [processed-projection (process-projection this (s/conform ::column-list projection))]
       (assoc this :projection processed-projection)))
@@ -691,9 +691,9 @@
 
 (s/fdef lock
   :args (s/cat
-          :rel ::relation
-          :lock-type ::lock-type
-          :locked-rows (s/? ::locked-rows))
+         :rel ::relation
+         :lock-type ::lock-type
+         :locked-rows (s/? ::locked-rows))
   :ret ::relation)
 
 (defn join
@@ -717,11 +717,11 @@
 
 (s/fdef join
   :args (s/cat
-          :rel ::relation
-          :join-type ::join-type
-          :join-rel ::relation
-          :join-alias keyword?
-          :join-on ::value-expression)
+         :rel ::relation
+         :join-type ::join-type
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression)
   :ret ::relation)
 
 (defn where
@@ -740,8 +740,8 @@
 
 (s/fdef where
   :args (s/cat
-          :rel ::relation
-          :where-expression ::value-expression)
+         :rel ::relation
+         :where-expression ::value-expression)
   :ret ::relation)
 
 (defn or-where
@@ -751,8 +751,8 @@
 
 (s/fdef or-where
   :args (s/cat
-          :rel ::relation
-          :where-expression ::value-expression)
+         :rel ::relation
+         :where-expression ::value-expression)
   :ret ::relation)
 
 (defn having
@@ -762,8 +762,8 @@
 
 (s/fdef having
   :args (s/cat
-          :rel ::relation
-          :having-expression ::value-expression)
+         :rel ::relation
+         :having-expression ::value-expression)
   :ret ::relation)
 
 (defn or-having
@@ -773,8 +773,8 @@
 
 (s/fdef or-having
   :args (s/cat
-          :rel ::relation
-          :having-expression ::value-expression)
+         :rel ::relation
+         :having-expression ::value-expression)
   :ret ::relation)
 
 (defn offset
@@ -784,8 +784,8 @@
 
 (s/fdef offset
   :args (s/cat
-          :rel ::relation
-          :offset int?)
+         :rel ::relation
+         :offset int?)
   :ret ::relation)
 
 (defn limit
@@ -795,8 +795,8 @@
 
 (s/fdef limit
   :args (s/cat
-          :rel ::relation
-          :limit int?)
+         :rel ::relation
+         :limit int?)
   :ret ::relation)
 
 (defn order-by
@@ -813,8 +813,8 @@
 
 (s/fdef order-by
   :args (s/cat
-          :rel ::relation
-          :orders ::orders)
+         :rel ::relation
+         :orders ::orders)
   :ret ::relation)
 
 (defn extend
@@ -842,9 +842,9 @@
 
 (s/fdef extend
   :args (s/cat
-          :rel ::relation
-          :col-name keyword?
-          :extend-expression ::value-expression)
+         :rel ::relation
+         :col-name keyword?
+         :extend-expression ::value-expression)
   :ret ::relation)
 
 (defn extend-with-aggregate
@@ -864,9 +864,9 @@
 
 (s/fdef extend-with-aggregate
   :args (s/cat
-          :rel ::relation
-          :col-name keyword?
-          :agg-expression ::function-call)
+         :rel ::relation
+         :col-name keyword?
+         :agg-expression ::function-call)
   :ret ::relation)
 
 (defn extend-with-window
@@ -880,11 +880,11 @@
 
 (s/fdef extend-with-window
   :args (s/cat
-          :rel ::relation
-          :col-name keyword?
-          :window-expression ::function-call
-          :partitions (s/? ::column-list)
-          :orders (s/? ::orders))
+         :rel ::relation
+         :col-name keyword?
+         :window-expression ::function-call
+         :partitions (s/? ::column-list)
+         :orders (s/? ::orders))
   :ret ::relation)
 
 (defn rename
@@ -900,9 +900,9 @@
 
 (s/fdef rename
   :args (s/cat
-          :rel ::relation
-          :prev-col-name keyword?
-          :next-col-name keyword?)
+         :rel ::relation
+         :prev-col-name keyword?
+         :next-col-name keyword?)
   :ret ::relation)
 
 (defn select
@@ -912,8 +912,8 @@
 
 (s/fdef select
   :args (s/cat
-          :rel ::relation
-          :projection ::column-list)
+         :rel ::relation
+         :projection ::column-list)
   :ret ::relation)
 
 (defn returning
@@ -923,8 +923,8 @@
 
 (s/fdef returning
   :args (s/cat
-          :rel ::writeable
-          :projection ::column-list)
+         :rel ::writeable
+         :projection ::column-list)
   :ret ::writeable)
 
 (defn distinct
@@ -936,10 +936,10 @@
 
 (s/fdef distinct
   :args (s/cat
-          :rel ::relation
-          :distinct-expression (s/or
-                                 :boolean boolean?
-                                 :distinct-expression ::column-list))
+         :rel ::relation
+         :distinct-expression (s/or
+                               :boolean boolean?
+                               :distinct-expression ::column-list))
   :ret ::relation)
 
 (defn only
@@ -951,8 +951,8 @@
 
 (s/fdef only
   :args (s/cat
-          :rel ::relation
-          :is-only (s/? boolean?))
+         :rel ::relation
+         :is-only (s/? boolean?))
   :ret ::relation)
 
 (defn union
@@ -962,8 +962,8 @@
 
 (s/fdef union
   :args (s/cat
-          :rel ::relation
-          :other-rel ::relation)
+         :rel ::relation
+         :other-rel ::relation)
   :ret ::relation)
 
 (defn union-all
@@ -973,8 +973,8 @@
 
 (s/fdef union-all
   :args (s/cat
-          :rel ::relation
-          :other-rel ::relation)
+         :rel ::relation
+         :other-rel ::relation)
   :ret ::relation)
 
 (defn intersect
@@ -984,8 +984,8 @@
 
 (s/fdef intersect
   :args (s/cat
-          :rel ::relation
-          :other-rel ::relation)
+         :rel ::relation
+         :other-rel ::relation)
   :ret ::relation)
 
 (defn except
@@ -995,8 +995,8 @@
 
 (s/fdef except
   :args (s/cat
-          :rel ::relation
-          :other-rel ::relation)
+         :rel ::relation
+         :other-rel ::relation)
   :ret ::relation)
 
 (defn wrap
@@ -1021,15 +1021,15 @@
 (defn with-default-columns [rel]
   (let [columns (get-in rel [:spec :columns])]
     (reduce
-      (fn [acc col]
-        (let [id    (keyword (gensym "column-"))
-              alias (col->alias col)]
-          (-> acc
-            (assoc-in [:columns id] {:type :concrete :name col})
-            (assoc-in [:ids->aliases id] alias)
-            (assoc-in [:aliases->ids alias] id))))
-      rel
-      columns)))
+     (fn [acc col]
+       (let [id    (keyword (gensym "column-"))
+             alias (col->alias col)]
+         (-> acc
+             (assoc-in [:columns id] {:type :concrete :name col})
+             (assoc-in [:ids->aliases id] alias)
+             (assoc-in [:aliases->ids alias] id))))
+     rel
+     columns)))
 
 (s/fdef with-default-columns
   :args (s/cat :rel ::relation)
@@ -1053,13 +1053,13 @@
 
 (defn with-pk [rel pk-cols]
   (let [pk (reduce
-             (fn [acc col]
-               (let [col-id (get-in rel [:aliases->ids col])]
-                 (if col-id
-                   (conj acc col-id)
-                   (throw (ex-info-missing-column rel col)))))
-             []
-             pk-cols)]
+            (fn [acc col]
+              (let [col-id (get-in rel [:aliases->ids col])]
+                (if col-id
+                  (conj acc col-id)
+                  (throw (ex-info-missing-column rel col)))))
+            []
+            pk-cols)]
     (assoc rel :pk pk)))
 
 (s/fdef with-pk
@@ -1078,8 +1078,8 @@
 
 (s/fdef from
   :args (s/cat :updatable ::updatable
-          :from-rel ::relation
-          :from-alias keyword?)
+               :from-rel ::relation
+               :from-alias keyword?)
   :ret ::updatable)
 
 (defn using [deletable using-rel using-alias]
@@ -1087,8 +1087,8 @@
 
 (s/fdef using
   :args (s/cat :deletable ::deletable
-          :using-rel ::relation
-          :using-alias keyword?)
+               :using-rel ::relation
+               :using-alias keyword?)
   :ret ::deletable)
 
 (defn with-inserts [insertable inserts]
@@ -1106,8 +1106,8 @@
 
 (s/fdef on-conflict-do-nothing
   :args (s/cat :insertable ::insertable
-          :conflict-target ::conflict-target
-          :where-expression (s/? ::value-expression))
+               :conflict-target ::conflict-target
+               :where-expression (s/? ::value-expression))
   :ret ::insertable)
 
 (defn on-conflict-do-update
@@ -1117,16 +1117,16 @@
 
 (s/fdef on-conflict-do-update
   :args (s/cat :insertable ::insertable
-          :conflict-target ::conflict-target
-          :updates ::updates
-          :where-expression (s/? ::value-expression))
+               :conflict-target ::conflict-target
+               :updates ::updates
+               :where-expression (s/? ::value-expression))
   :ret ::insertable)
 
 (defn spec->relation [spec-map]
   (-> (->Relation (assoc spec-map :namespace (->kebab-case-string (:name spec-map))))
-    with-default-columns
-    with-default-projection
-    with-default-pk))
+      with-default-columns
+      with-default-projection
+      with-default-pk))
 
 (s/fdef spec->relation
   :args (s/cat :spec-map ::spec-map)
@@ -1137,9 +1137,9 @@
     (throw (ex-info "Invalid relation" {:relation rel})))
   (if (get-in rel [:spec :is-insertable-into])
     (-> (constructor (:spec rel))
-      with-default-columns
-      with-default-projection
-      with-default-pk)
+        with-default-columns
+        with-default-projection
+        with-default-pk)
     (throw (ex-info "Relation is not writeable" {:relation rel}))))
 
 (defn ->insertable

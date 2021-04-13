@@ -52,16 +52,16 @@
   [value]
   (let [sanitized-values
         (map
-          (fn [v]
-            (cond
-              (nil? v)
-              "null"
+         (fn [v]
+           (cond
+             (nil? v)
+             "null"
 
-              (or (= "" v) (= "null" v) (and (string? v) (re-find match-to-escape-re v)))
-              (-> v (str/replace escape-re "$1") q)
+             (or (= "" v) (= "null" v) (and (string? v) (re-find match-to-escape-re v)))
+             (-> v (str/replace escape-re "$1") q)
 
-              :else v))
-          value)]
+             :else v))
+         value)]
     (quoted-literal (str "{" (str/join "," sanitized-values) "}"))))
 
 (def l literal)

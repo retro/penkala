@@ -48,16 +48,16 @@
 (deftest it-returns-products-in-1-and-2
   (let [res (select! *env* (-> *env* :products (r/where [:in :id [1 2]])))
         res2 (select! *env* (-> *env* :products (r/where [:in :id (-> *env* :products
-                                                                    (r/select [:id])
-                                                                    (r/where [:or [:= :id 1] [:= :id 2]]))])))]
+                                                                      (r/select [:id])
+                                                                      (r/where [:or [:= :id 1] [:= :id 2]]))])))]
     (is (= 2 (count res) (count res2)))
     (is (= #{1 2} (->> res (map :products/id) set) (->> res2 (map :products/id) set)))))
 
 (deftest it-returns-products-not-in-1-and-2
   (let [res (select! *env* (-> *env* :products (r/where [:not-in :id [1 2]])))
         res2 (select! *env* (-> *env* :products (r/where [:not-in :id (-> *env* :products
-                                                                        (r/select [:id])
-                                                                        (r/where [:or [:= :id 1] [:= :id 2]]))])))]
+                                                                          (r/select [:id])
+                                                                          (r/where [:or [:= :id 1] [:= :id 2]]))])))]
     (is (= 2 (count res) (count res2)))
     (is (= #{3 4} (->> res (map :products/id) set) (->> res2 (map :products/id) set)))))
 
@@ -77,9 +77,9 @@
         res3 (select! *env* (-> *env* :products (r/where [:is-distinct-from :tags ["tag1" "tag2"]])))]
     (is (= 3 (count res) (count res2) (count res3)))
     (is (= #{1 3 4}
-          (->> res (map :products/id) set)
-          (->> res2 (map :products/id) set)
-          (->> res3 (map :products/id) set)))))
+           (->> res (map :products/id) set)
+           (->> res2 (map :products/id) set)
+           (->> res3 (map :products/id) set)))))
 
 (deftest it-returns-products-using-not-distinct-from
   (let [res (select! *env* (-> *env* :products (r/where [:is-not-distinct-from :tags (h/ql "{tag1,tag2}")])))
@@ -87,9 +87,9 @@
         res3 (select! *env* (-> *env* :products (r/where [:is-not-distinct-from :tags ["tag1" "tag2"]])))]
     (is (= 1 (count res) (count res2) (count res3)))
     (is (= #{2}
-          (->> res (map :products/id) set)
-          (->> res2 (map :products/id) set)
-          (->> res3 (map :products/id) set)))))
+           (->> res (map :products/id) set)
+           (->> res2 (map :products/id) set)
+           (->> res3 (map :products/id) set)))))
 
 (deftest it-returns-products-with-a-compound-where
   (let [res (select! *env* (-> *env* :products (r/where [:and [:= :id 1] [:= :price 12.0] [:is-null :tags]])))]
@@ -203,9 +203,9 @@
 
 (deftest it-allows-extending-columns
   (let [res (select-one! *env* (-> *env* :products
-                                 (r/extend :upper-name [:upper :name])
-                                 (r/select [:id :upper-name])
-                                 (r/where [:= :id 1])))]
+                                   (r/extend :upper-name [:upper :name])
+                                   (r/select [:id :upper-name])
+                                   (r/where [:= :id 1])))]
     (is (= {:products/id 1 :products/upper-name "PRODUCT 1"} res))))
 
 (deftest it-returns-ascending-order-of-products-by-price
@@ -229,49 +229,48 @@
 
 (deftest it-can-use-aggregates
   (let [res (select-one! *env* (-> *env* :products
-                                 (r/where [:in :price [12.00 24.00]])
-                                 (r/extend-with-aggregate :count [:count 1])
-                                 (r/select [:count])))]
+                                   (r/where [:in :price [12.00 24.00]])
+                                   (r/extend-with-aggregate :count [:count 1])
+                                   (r/select [:count])))]
     (is (= 2 (:products/count res)))))
 
 (deftest it-can-use-aggregates-with-filter
   (let [res (select! *env* (-> *env* :products
-                                 (r/where [:in :price [12.00 24.00]])
-                                 (r/extend-with-aggregate :has-products-priced-12 [:> [:filter [:count 1] [:= :price 12.00]] 0])
-                                 (r/select [:id :has-products-priced-12])
-                                 ))]
+                               (r/where [:in :price [12.00 24.00]])
+                               (r/extend-with-aggregate :has-products-priced-12 [:> [:filter [:count 1] [:= :price 12.00]] 0])
+                               (r/select [:id :has-products-priced-12])))]
     (is (= [{:products/has-products-priced-12 true, :products/id 1}
             {:products/has-products-priced-12 false, :products/id 2}]
-          res))))
+           res))))
 
 (deftest it-can-use-window-functions
   (let [res (select! *env* (-> *env* :products
-                             (r/extend-with-window :sum-so-far [:sum :price])
-                             (r/select [:id :price :sum-so-far])
-                             (r/order-by [:id])))]
+                               (r/extend-with-window :sum-so-far [:sum :price])
+                               (r/select [:id :price :sum-so-far])
+                               (r/order-by [:id])))]
     (is (= [{:products/id 1 :products/price 12.00M :products/sum-so-far 111.00M}
             {:products/id 2 :products/price 24.00M :products/sum-so-far 111.00M}
             {:products/id 3 :products/price 35.00M :products/sum-so-far 111.00M}
             {:products/id 4 :products/price 40.00M :products/sum-so-far 111.00M}]
-          res)))
+           res)))
   (let [res (select! *env* (-> *env* :products
-                             (r/extend-with-window :sum-so-far [:sum :price] [:id])
-                             (r/select [:id :price :sum-so-far])
-                             (r/order-by [:id])))]
+                               (r/extend-with-window :sum-so-far [:sum :price] [:id])
+                               (r/select [:id :price :sum-so-far])
+                               (r/order-by [:id])))]
     (is (= [{:products/id 1 :products/price 12.00M :products/sum-so-far 12.00M}
             {:products/id 2 :products/price 24.00M :products/sum-so-far 24.00M}
             {:products/id 3 :products/price 35.00M :products/sum-so-far 35.00M}
             {:products/id 4 :products/price 40.00M :products/sum-so-far 40.00M}]
-          res)))
+           res)))
   (let [res (select! *env* (-> *env* :products
-                             (r/extend-with-window :sum-so-far [:sum :price] nil [:id])
-                             (r/select [:id :price :sum-so-far])
-                             (r/order-by [:id])))]
+                               (r/extend-with-window :sum-so-far [:sum :price] nil [:id])
+                               (r/select [:id :price :sum-so-far])
+                               (r/order-by [:id])))]
     (is (= [{:products/id 1 :products/price 12.00M :products/sum-so-far 12.00M}
             {:products/id 2 :products/price 24.00M :products/sum-so-far 36.00M}
             {:products/id 3 :products/price 35.00M :products/sum-so-far 71.00M}
             {:products/id 4 :products/price 40.00M :products/sum-so-far 111.00M}]
-          res))))
+           res))))
 
 (deftest it-can-query-views
   (let [res (select! *env* :popular-products)]
@@ -279,12 +278,12 @@
 
 (deftest it-can-restrict-columns-when-querying-views
   (let [res (select-one! *env* (-> *env* :popular-products
-                                 (r/select [:id :price])))]
+                                   (r/select [:id :price])))]
     (is (= #{:popular-products/id :popular-products/price} (set (keys res))))))
 
 (deftest it-can-override-namespace-in-decomposition
   (let [res (select-one! *env* (-> *env* :popular-products
-                                 (r/select [:id :price])) {} {:namespace :products})]
+                                   (r/select [:id :price])) {} {:namespace :products})]
     (is (= #{:products/id :products/price} (set (keys res))))))
 
 (deftest it-can-apply-predicates-when-querying-views
