@@ -579,6 +579,22 @@
   (-using [this using-rel using-alias]
     (assoc-in this [:joins using-alias] {:relation using-rel})))
 
+(defn ensure-join-alias-on-projection [join-alias join-projection]
+  (let [join-alias-name (name join-alias)]
+    (reduce
+     (fn [acc col]
+       (if (keyword? col)
+         (let [col-ns (namespace col)
+               col-nss (str/split col-ns #"\.")]
+           (when (not= join-alias-name (first col-nss))
+             (throw (ex-info "Columns in join projection must be aliased with the join alias" {:join-alias join-alias :column col})))
+           (let [col-ns' (->> col-nss rest (str/join "."))
+                 col' (keyword col-ns' (name col))]
+             (conj acc col')))
+         (conj acc col)))
+     []
+     join-projection)))
+
 (defrecord Relation [spec]
   IRelation
   (-lock [this lock-type locked-rows]
@@ -587,7 +603,10 @@
     (let [join-rel' (if (contains? #{:left-lateral :right-lateral} join-type)
                       (assoc join-rel :parent this)
                       join-rel)
-          processed-join-projection (when join-projection (process-projection join-rel' (s/conform ::column-list join-projection)))
+          processed-join-projection (when join-projection
+                                      (process-projection join-rel' (->> join-projection
+                                                                         (ensure-join-alias-on-projection join-alias)
+                                                                         (s/conform ::column-list))))
           with-join (assoc-in this [:joins join-alias] {:relation join-rel'
                                                         :type join-type
                                                         :projection processed-join-projection})

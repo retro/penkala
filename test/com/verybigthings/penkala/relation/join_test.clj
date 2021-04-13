@@ -26,6 +26,21 @@
                            :beta/val "alpha three again"}]}]
            res))))
 
+(deftest it-joins-a-relation-with-an-explicit-join-projection
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        alpha-beta (-> alpha
+                       (r/join :inner beta :beta [:= :id :beta/alpha-id] [:beta/alpha-id :beta/id])
+                       (r/where [:= :id 3]))
+        res (select! *env* alpha-beta)]
+    (is (= [{:alpha/id 3
+             :alpha/val "three"
+             :alpha/beta [{:beta/id 3
+                           :beta/alpha-id 3}
+                          {:beta/id 4
+                           :beta/alpha-id 3}]}]
+           res))))
+
 (deftest it-can-join-without-projection
   (let [alpha (-> (:alpha *env*)
                   (r/select [:id]))
