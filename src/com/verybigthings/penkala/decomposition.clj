@@ -220,32 +220,35 @@
                                 (:projection relation))
            columns-with-joined (reduce-kv
                                 (fn [acc alias join]
-                                  (let [join-relation  (:relation join)
+                                  (let [join-projection (:projection join)
+                                        join-relation  (update (:relation join) :projection #(or join-projection %))
                                         join-overrides (get-in overrides [:schema alias])
                                         join-path      (conj path-prefix alias)
-                                        join-type      (:type join)
-                                         ;; If we encounter a join that might have nils on the left side
-                                         ;; we switch to the flat decomposition, where we just namespace all columns
-                                         ;; to avoid duplicates. The namespacing behavior is different than the default
-                                         ;; because it's using join alias as a namespace instead of the relation name
-                                         ;; to ensure that joining a same relation multiple times is not overriding values
-                                        join-schema    (if (contains? #{:left :left-lateral :inner :inner-lateral} join-type)
-                                                         (infer-schema join-relation join-overrides join-path)
-                                                         (infer-flat-schema join-relation join-path))]
+                                        join-type      (:type join)]
+                                    (if (-> join-relation :projection seq)
+                                      ;; If we encounter a join that might have nils on the left side
+                                      ;; we switch to the flat decomposition, where we just namespace all columns
+                                      ;; to avoid duplicates. The namespacing behavior is different than the default
+                                      ;; because it's using join alias as a namespace instead of the relation name
+                                      ;; to ensure that joining a same relation multiple times is not overriding values
+                                      (let [join-schema (if (contains? #{:left :left-lateral :inner :inner-lateral} join-type)
+                                                          (infer-schema join-relation join-overrides join-path)
+                                                          (infer-flat-schema join-relation join-path))]
                                      ;; First we build join schema and then check if this level should be omitted.
                                      ;; If it should, we still need to pick up any joins on the levels below it.
                                      ;; This is not super efficient as we'll iterate through some columns multiple
                                      ;; times, but works until a better way is figured out.
-                                    (if (= :omit (:decompose-to join-schema))
-                                      (let [join-relation-projection (:projection join-relation)]
-                                        (reduce-kv
-                                         (fn [acc' col col-schema]
-                                           (if (contains? join-relation-projection col)
-                                             acc'
-                                             (assoc acc col col-schema)))
-                                         acc
-                                         (:schema join-schema)))
-                                      (assoc acc alias join-schema))))
+                                        (if (= :omit (:decompose-to join-schema))
+                                          (let [join-relation-projection (:projection join-relation)]
+                                            (reduce-kv
+                                             (fn [acc' col col-schema]
+                                               (if (contains? join-relation-projection col)
+                                                 acc'
+                                                 (assoc acc col col-schema)))
+                                             acc
+                                             (:schema join-schema)))
+                                          (assoc acc alias join-schema)))
+                                      acc)))
                                 columns
                                 (:joins relation))]
        (map->DecompositionSchema

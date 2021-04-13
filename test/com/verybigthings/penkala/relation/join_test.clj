@@ -1,6 +1,6 @@
 (ns com.verybigthings.penkala.relation.join-test
-  (:require [clojure.test :refer :all]
-            [com.verybigthings.penkala.next-jdbc :refer [select!]]
+  (:require [clojure.test :refer [deftest use-fixtures is]]
+            [com.verybigthings.penkala.next-jdbc :refer [select! prettify-sql]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
             [com.verybigthings.penkala.decomposition :refer [map->DecompositionSchema]]))
@@ -25,6 +25,21 @@
                            :beta/j nil
                            :beta/val "alpha three again"}]}]
            res))))
+
+(deftest it-can-join-without-projection
+  (let [alpha (-> (:alpha *env*)
+                  (r/select [:id]))
+        beta  (:beta *env*)
+        alpha-beta (-> alpha
+                       (r/join :left beta :beta [:= :id :beta/alpha-id] [])
+                       (r/extend-with-aggregate :beta-count [:count :id])
+                       (r/where [:= :id 3]))
+        res (select! *env* alpha-beta)]
+
+    (is (= [{:alpha/id 3
+             :alpha/beta-count 2}]
+           res))))
+
 
 (deftest it-joins-a-view-with-an-explicit-pk-1
   (let [alpha (:alpha *env*)
