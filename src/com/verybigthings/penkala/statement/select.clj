@@ -308,8 +308,8 @@
                      acc
                      (sort projection))]
      (reduce-kv
-      (fn [acc' alias {:keys [relation]}]
-        (with-projection acc' env relation (conj path-prefix alias)))
+      (fn [acc' alias {:keys [relation projection]}]
+        (with-projection acc' env (update relation :projection #(or projection %)) (conj path-prefix alias)))
       acc'
       (get-in rel [:joins])))))
 
@@ -412,8 +412,8 @@
                      acc
                      (sort projection))]
      (reduce-kv
-      (fn [acc' alias {:keys [relation]}]
-        (with-group-by-and-having acc' env relation (conj path-prefix alias)))
+      (fn [acc' alias {:keys [relation projection]}]
+        (with-group-by-and-having acc' env (update relation :projection #(or projection %)) (conj path-prefix alias)))
       acc'
       (get-in rel [:joins])))))
 

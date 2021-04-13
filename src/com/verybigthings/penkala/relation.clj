@@ -16,7 +16,7 @@
 
 (defprotocol IRelation
   (-lock [this lock-type locked-rows])
-  (-join [this join-type join-rel join-alias join-on])
+  (-join [this join-type join-rel join-alias join-on join-projection])
   (-having [this having-expression])
   (-or-having [this having-expression])
   (-offset [this offset])
@@ -583,11 +583,14 @@
   IRelation
   (-lock [this lock-type locked-rows]
     (assoc this :lock {:type lock-type :rows locked-rows}))
-  (-join [this join-type join-rel join-alias join-on]
+  (-join [this join-type join-rel join-alias join-on join-projection]
     (let [join-rel' (if (contains? #{:left-lateral :right-lateral} join-type)
                       (assoc join-rel :parent this)
                       join-rel)
-          with-join (assoc-in this [:joins join-alias] {:relation join-rel' :type join-type})
+          processed-join-projection (when join-projection (process-projection join-rel' (s/conform ::column-list join-projection)))
+          with-join (assoc-in this [:joins join-alias] {:relation join-rel'
+                                                        :type join-type
+                                                        :projection processed-join-projection})
           join-on'  (process-value-expression with-join (s/conform ::value-expression join-on))]
       (assoc-in with-join [:joins join-alias :on] join-on')))
   (-having [this having-expression]
@@ -712,8 +715,10 @@
   can use join aliases concatenated with a dot (e.g. :join-alias.another-join-alias/column)
 
   `join-on` can be any value expression, so you can have as complex join predicates as you need."
-  [rel join-type join-rel join-alias join-on]
-  (-join rel join-type join-rel join-alias join-on))
+  ([rel join-type join-rel join-alias join-on]
+   (-join rel join-type join-rel join-alias join-on nil))
+  ([rel join-type join-rel join-alias join-on join-projection]
+   (-join rel join-type join-rel join-alias join-on join-projection)))
 
 (s/fdef join
   :args (s/cat
@@ -721,7 +726,8 @@
          :join-type ::join-type
          :join-rel ::relation
          :join-alias keyword?
-         :join-on ::value-expression)
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list))
   :ret ::relation)
 
 (defn where
