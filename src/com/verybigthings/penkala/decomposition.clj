@@ -11,32 +11,32 @@
 
 (s/def ::schema-map
   (s/map-of
-    keyword?
-    (s/or
-      :keyword keyword?
-      :schema ::schema)))
+   keyword?
+   (s/or
+    :keyword keyword?
+    :schema ::schema)))
 
 (s/def ::schema-vec
   (s/coll-of
-    (s/or
-      :keyword keyword?
-      :schema-map ::schema-map)
-    :kind vector?))
+   (s/or
+    :keyword keyword?
+    :schema-map ::schema-map)
+   :kind vector?))
 
 (s/def ::schema
   (s/or
-    :schema-map ::schema-map
-    :schema-vec ::schema-vec))
+   :schema-map ::schema-map
+   :schema-vec ::schema-vec))
 
 (s/def ::pk
   (s/or
-    :single keyword?
-    :multiple (s/coll-of keyword?)))
+   :single keyword?
+   :multiple (s/coll-of keyword?)))
 
 (s/def ::schema
   (s/keys
-    :req-un [::pk ::schema]
-    :opt-un [::decompose-to]))
+   :req-un [::pk ::schema]
+   :opt-un [::decompose-to]))
 
 (declare process-schema)
 
@@ -46,49 +46,49 @@
         rename              (if ns-name (fn [k] (keyword ns-name (name k))) identity)
         process-map-columns (fn [schema columns]
                               (reduce-kv
-                                (fn [acc k v]
-                                  (if (map? v)
-                                    (assoc-in acc [:schemas (rename k)] (process-schema v))
-                                    (assoc-in acc [:renames (rename k)] v)))
-                                schema
-                                columns))]
+                               (fn [acc k v]
+                                 (if (map? v)
+                                   (assoc-in acc [:schemas (rename k)] (process-schema v))
+                                   (assoc-in acc [:renames (rename k)] v)))
+                               schema
+                               columns))]
     (if (map? columns)
       (process-map-columns schema columns)
       (reduce
-        (fn [acc v]
-          (if (map? v)
-            (process-map-columns acc v)
-            (assoc-in acc [:renames v] (rename v))))
-        schema
-        columns))))
+       (fn [acc v]
+         (if (map? v)
+           (process-map-columns acc v)
+           (assoc-in acc [:renames v] (rename v))))
+       schema
+       columns))))
 
 (defn process-schema- [schema]
   (-> schema
-    process-schema-columns
-    (update :pk as-vec)))
+      process-schema-columns
+      (update :pk as-vec)))
 
 (def process-schema (memoize process-schema-))
 
 (defn assoc-columns [acc renames row]
   (reduce-kv
-    (fn [acc' k v]
-      (if (contains? row v)
-        (assoc acc' k (get row v))
-        acc'))
-    acc
-    renames))
+   (fn [acc' k v]
+     (if (contains? row v)
+       (assoc acc' k (get row v))
+       acc'))
+   acc
+   renames))
 
 (declare build)
 
 (defn assoc-descendants [acc schemas idx row]
   (reduce-kv
-    (fn [m k v]
-      (let [descendant (build (get acc k) v idx row)]
-        (if descendant
-          (assoc m k descendant)
-          m)))
-    acc
-    schemas))
+   (fn [m k v]
+     (let [descendant (build (get acc k) v idx row)]
+       (if descendant
+         (assoc m k descendant)
+         m)))
+   acc
+   schemas))
 
 (defn build [acc schema idx row]
   (let [pk              (:pk schema)
@@ -98,46 +98,46 @@
                           (get row (first pk)))
         {:keys [renames schemas]} schema]
     (if (or (and is-composite-pk (every? nil? id))
-          (and (not is-composite-pk) (nil? id)))
+            (and (not is-composite-pk) (nil? id)))
       acc
       (let [current (-> (get acc id {})
-                      (vary-meta update ::idx #(or % idx))
-                      (assoc-columns renames row)
-                      (assoc-descendants schemas idx row))]
+                        (vary-meta update ::idx #(or % idx))
+                        (assoc-columns renames row)
+                        (assoc-descendants schemas idx row))]
         (assoc acc id current)))))
 
 (defn transform [schema mapping]
   (let [decompose-to (get schema :decompose-to :coll)
         schemas      (:schemas schema)
         transformed  (reduce-kv
-                       (fn [acc k row]
-                         (let [transformed
-                               (reduce-kv
-                                 (fn [row' k k-schema]
-                                   (let [transformed-child (transform k-schema (get row k))]
-                                     (if (= :parent (:decompose-to k-schema))
-                                       (-> row'
+                      (fn [acc k row]
+                        (let [transformed
+                              (reduce-kv
+                               (fn [row' k k-schema]
+                                 (let [transformed-child (transform k-schema (get row k))]
+                                   (if (= :parent (:decompose-to k-schema))
+                                     (-> row'
                                          (dissoc k)
                                          (merge transformed-child))
-                                       (assoc row' k transformed-child))))
-                                 row
-                                 schemas)]
-                           (cond
-                             (= :coll decompose-to)
-                             (conj acc transformed)
+                                     (assoc row' k transformed-child))))
+                               row
+                               schemas)]
+                          (cond
+                            (= :coll decompose-to)
+                            (conj acc transformed)
 
-                             (= :indexed-by-pk decompose-to)
-                             (assoc acc k transformed)
+                            (= :indexed-by-pk decompose-to)
+                            (assoc acc k transformed)
 
                              ;; decompose to :map and :parent should just return the map
-                             :else
-                             transformed)))
-                       (if (= :coll decompose-to) [] {})
-                       mapping)]
+                            :else
+                            transformed)))
+                      (if (= :coll decompose-to) [] {})
+                      mapping)]
     (if (= :coll decompose-to)
       (->> transformed
-        (sort-by #(-> % meta ::idx))
-        vec)
+           (sort-by #(-> % meta ::idx))
+           vec)
       transformed)))
 
 (defn decompose
@@ -146,10 +146,10 @@
   (when (and (seq schema) (seq data))
     (let [schema' (process-schema schema)
           mapping (reduce
-                    (fn [acc [idx row]]
-                      (build acc schema' idx row))
-                    {}
-                    (map-indexed (fn [idx v] [idx v]) (as-vec data)))]
+                   (fn [acc [idx row]]
+                     (build acc schema' idx row))
+                   {}
+                   (map-indexed (fn [idx v] [idx v]) (as-vec data)))]
       (transform schema' mapping))))
 
 (s/fdef decompose
@@ -158,9 +158,9 @@
 
 (defn get-prefixed-col-name [path-prefix col-name]
   (->> (conj path-prefix (col->alias col-name))
-    (mapv name)
-    path-prefix-join
-    keyword))
+       (mapv name)
+       path-prefix-join
+       keyword))
 
 (defn get-rel-pk [rel]
   (let [pk-ids (:pk rel)
@@ -174,23 +174,23 @@
   ([relation path-prefix]
    (let [columns (infer-flat-schema relation path-prefix {})]
      (map->DecompositionSchema
-       {:pk (-> (vals columns) sort vec)
-        :namespace false
-        :schema columns
-        :decompose-to :coll})))
+      {:pk (-> (vals columns) sort vec)
+       :namespace false
+       :schema columns
+       :decompose-to :coll})))
   ([relation path-prefix schema]
    (let [with-columns (reduce
-                        (fn [acc col-name]
-                          (let [col-ns (when (seq path-prefix) (str/join "." (map name path-prefix)))
-                                col-name' (if col-ns (keyword col-ns (name col-name)) col-name)]
-                            (assoc acc col-name' (get-prefixed-col-name path-prefix col-name))))
-                        schema
-                        (:projection relation))]
+                       (fn [acc col-name]
+                         (let [col-ns (when (seq path-prefix) (str/join "." (map name path-prefix)))
+                               col-name' (if col-ns (keyword col-ns (name col-name)) col-name)]
+                           (assoc acc col-name' (get-prefixed-col-name path-prefix col-name))))
+                       schema
+                       (:projection relation))]
      (reduce-kv
-       (fn [acc alias join]
-         (infer-flat-schema (:relation join) (conj path-prefix alias) acc))
-       with-columns
-       (:joins relation)))))
+      (fn [acc alias join]
+        (infer-flat-schema (:relation join) (conj path-prefix alias) acc))
+      with-columns
+      (:joins relation)))))
 
 (defn infer-schema
   "Infers the decomposition schema from a relation."
@@ -206,50 +206,50 @@
 
      :else
      (let [pk                  (->> (or (:pk overrides) (get-rel-pk relation))
-                                 as-vec
-                                 (mapv #(get-prefixed-col-name path-prefix %)))
+                                    as-vec
+                                    (mapv #(get-prefixed-col-name path-prefix %)))
            default-namespace   (:namespace overrides)
            namespace           (if (nil? default-namespace)
                                  (->kebab-case-string (get-in relation [:spec :name]))
                                  default-namespace)
            decompose-to        (get overrides :decompose-to :coll)
            columns             (reduce
-                                 (fn [acc col-name]
-                                   (assoc acc col-name (get-prefixed-col-name path-prefix col-name)))
-                                 {}
-                                 (:projection relation))
+                                (fn [acc col-name]
+                                  (assoc acc col-name (get-prefixed-col-name path-prefix col-name)))
+                                {}
+                                (:projection relation))
            columns-with-joined (reduce-kv
-                                 (fn [acc alias join]
-                                   (let [join-relation  (:relation join)
-                                         join-overrides (get-in overrides [:schema alias])
-                                         join-path      (conj path-prefix alias)
-                                         join-type      (:type join)
+                                (fn [acc alias join]
+                                  (let [join-relation  (:relation join)
+                                        join-overrides (get-in overrides [:schema alias])
+                                        join-path      (conj path-prefix alias)
+                                        join-type      (:type join)
                                          ;; If we encounter a join that might have nils on the left side
                                          ;; we switch to the flat decomposition, where we just namespace all columns
                                          ;; to avoid duplicates. The namespacing behavior is different than the default
                                          ;; because it's using join alias as a namespace instead of the relation name
                                          ;; to ensure that joining a same relation multiple times is not overriding values
-                                         join-schema    (if (contains? #{:left :left-lateral :inner :inner-lateral} join-type)
-                                                          (infer-schema join-relation join-overrides join-path)
-                                                          (infer-flat-schema join-relation join-path))]
+                                        join-schema    (if (contains? #{:left :left-lateral :inner :inner-lateral} join-type)
+                                                         (infer-schema join-relation join-overrides join-path)
+                                                         (infer-flat-schema join-relation join-path))]
                                      ;; First we build join schema and then check if this level should be omitted.
                                      ;; If it should, we still need to pick up any joins on the levels below it.
                                      ;; This is not super efficient as we'll iterate through some columns multiple
                                      ;; times, but works until a better way is figured out.
-                                     (if (= :omit (:decompose-to join-schema))
-                                       (let [join-relation-projection (:projection join-relation)]
-                                         (reduce-kv
-                                           (fn [acc' col col-schema]
-                                             (if (contains? join-relation-projection col)
-                                               acc'
-                                               (assoc acc col col-schema)))
-                                           acc
-                                           (:schema join-schema)))
-                                       (assoc acc alias join-schema))))
-                                 columns
-                                 (:joins relation))]
+                                    (if (= :omit (:decompose-to join-schema))
+                                      (let [join-relation-projection (:projection join-relation)]
+                                        (reduce-kv
+                                         (fn [acc' col col-schema]
+                                           (if (contains? join-relation-projection col)
+                                             acc'
+                                             (assoc acc col col-schema)))
+                                         acc
+                                         (:schema join-schema)))
+                                      (assoc acc alias join-schema))))
+                                columns
+                                (:joins relation))]
        (map->DecompositionSchema
-         {:pk pk
-          :decompose-to decompose-to
-          :namespace namespace
-          :schema columns-with-joined})))))
+        {:pk pk
+         :decompose-to decompose-to
+         :namespace namespace
+         :schema columns-with-joined})))))

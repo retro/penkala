@@ -27,10 +27,10 @@
 
 (defn select-keys-with-default [m ks default]
   (reduce
-    (fn [acc k]
-      (assoc acc k (get m k default)))
-    {}
-    ks))
+   (fn [acc k]
+     (assoc acc k (get m k default)))
+   {}
+   ks))
 
 (defn as-vec [val]
   (when val
@@ -43,8 +43,8 @@
 
 (defn col->alias [col]
   (->> col
-    name
-    path-prefix-split
-    (map ->kebab-case-string)
-    path-prefix-join
-    keyword))
+       name
+       path-prefix-split
+       (map ->kebab-case-string)
+       path-prefix-join
+       keyword))

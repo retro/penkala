@@ -39,18 +39,18 @@
 
 (deftest it-adds-group-by-when-selecting-aggregate
   (let [[q & _] (-> rel
-                  (r/extend-with-aggregate :count [:count (h/l 1)])
-                  (r/get-select-query {}))]
+                    (r/extend-with-aggregate :count [:count (h/l 1)])
+                    (r/get-select-query {}))]
     (is (= "SELECT count(1) AS \"count\", \"foo\".\"id\" AS \"id\", \"foo\".\"name\" AS \"name\" FROM \"foo\" AS \"foo\" GROUP BY \"foo\".\"id\", \"foo\".\"name\""
-          q))))
+           q))))
 
 (deftest it-adds-having-when-selecting-aggregate
   (let [[q & _] (-> rel
-                  (r/extend-with-aggregate :count [:count (h/l 1)])
-                  (r/having [:> :count (h/l 1)])
-                  (r/get-select-query {}))]
+                    (r/extend-with-aggregate :count [:count (h/l 1)])
+                    (r/having [:> :count (h/l 1)])
+                    (r/get-select-query {}))]
     (is (= "SELECT count(1) AS \"count\", \"foo\".\"id\" AS \"id\", \"foo\".\"name\" AS \"name\" FROM \"foo\" AS \"foo\" GROUP BY \"foo\".\"id\", \"foo\".\"name\" HAVING count(1) > 1"
-          q))))
+           q))))
 
 (deftest it-renames-schema
   (let [[q & _] (r/get-select-query rel-with-schema {})]
