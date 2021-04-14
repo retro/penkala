@@ -206,6 +206,47 @@
         (update :params into params)
         (update :query  conj (str "CAST(" (str/join " " query) " AS " cast-type ")")))))
 
+(defn compile-case-value [acc env rel value]
+  (if value
+    (let [{:keys [query params]} (compile-value-expression empty-acc env rel value)]
+      (-> acc
+          (update :query into query)
+          (update :params into params)))
+    acc))
+
+(defn compile-case-whens [acc env rel whens]
+  (reduce
+   (fn [acc' {:keys [condition then]}]
+     (let [{cond-query :query cond-params :params} (compile-value-expression empty-acc env rel condition)
+           {then-query :query then-params :params} (compile-value-expression empty-acc env rel then)]
+       (-> acc'
+           (update :params into cond-params)
+           (update :params into then-params)
+           (update :query conj "WHEN")
+           (update :query into cond-query)
+           (update :query conj "THEN")
+           (update :query into then-query))))
+   acc
+   whens))
+
+(defn compile-case-else [acc env rel else]
+  (if else
+    (let [{:keys [query params]} (compile-value-expression empty-acc env rel else)]
+      (-> acc
+          (update :query conj "ELSE")
+          (update :query into query)
+          (update :params into params)))
+    acc))
+
+
+(defmethod compile-value-expression :case [acc env rel [_ {:keys [value whens else]}]]
+  (-> empty-acc
+      (update :query conj "CASE")
+      (compile-case-value env rel value)
+      (compile-case-whens env rel whens)
+      (compile-case-else env rel else)
+      (update :query conj "END")))
+
 (defn compile-order-by [acc env rel order-by]
   (let [{:keys [query params]}
         (reduce

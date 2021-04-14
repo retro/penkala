@@ -1,10 +1,9 @@
 (ns com.verybigthings.penkala.relation.querying-test
-  (:require [clojure.test :refer :all]
-            [com.verybigthings.penkala.next-jdbc :refer [select! select-one!]]
+  (:require [clojure.test :refer [use-fixtures deftest is]]
+            [com.verybigthings.penkala.next-jdbc :refer [select! select-one! prettify-sql]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.helpers :as h]
-            [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
-            [clojure.spec.alpha :as s]))
+            [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]))
 
 (use-fixtures :once (partial th/reset-db-fixture "data-all"))
 
@@ -293,3 +292,65 @@
 (deftest it-can-query-materialized-views
   (let [res (select! *env* :mv-orders)]
     (is (= 3 (count res)))))
+
+(deftest it-can-use-case-1
+  (let [products (-> *env*
+                     :products
+                     (r/extend :extended-col [:case :id
+                                              [:when 1 "One"]
+                                              [:when 2 "Two"]
+                                              "neither one or two"])
+                     (r/select [:id :extended-col]))
+        res (select! *env* products)]
+
+    (is (= [{:products/extended-col "One", :products/id 1}
+            {:products/extended-col "Two", :products/id 2}
+            {:products/extended-col "neither one or two", :products/id 3}
+            {:products/extended-col "neither one or two", :products/id 4}]
+           res))))
+
+(deftest it-can-use-case-2
+  (let [products (-> *env*
+                     :products
+                     (r/extend :extended-col [:case :id
+                                              [:when 1 "One"]
+                                              [:when 2 "Two"]])
+                     (r/select [:id :extended-col]))
+        res (select! *env* products)]
+
+    (is (= [{:products/extended-col "One", :products/id 1}
+            {:products/extended-col "Two", :products/id 2}
+            {:products/extended-col nil, :products/id 3}
+            {:products/extended-col nil, :products/id 4}]
+           res))))
+
+(deftest it-can-use-case-3
+  (let [products (-> *env*
+                     :products
+                     (r/extend :extended-col [:case
+                                              [:when [:= :id 1] "One"]
+                                              [:when [:= :id 2] "Two"]
+                                              "neither one or two"])
+                     (r/select [:id :extended-col]))
+        res (select! *env* products)]
+
+    (is (= [{:products/extended-col "One", :products/id 1}
+            {:products/extended-col "Two", :products/id 2}
+            {:products/extended-col "neither one or two", :products/id 3}
+            {:products/extended-col "neither one or two", :products/id 4}]
+           res))))
+
+(deftest it-can-use-case-4
+  (let [products (-> *env*
+                     :products
+                     (r/extend :extended-col [:case
+                                              [:when [:= :id 1] "One"]
+                                              [:when [:= :id 2] "Two"]])
+                     (r/select [:id :extended-col]))
+        res (select! *env* products)]
+
+    (is (= [{:products/extended-col "One", :products/id 1}
+            {:products/extended-col "Two", :products/id 2}
+            {:products/extended-col nil, :products/id 3}
+            {:products/extended-col nil, :products/id 4}]
+           res))))

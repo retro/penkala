@@ -248,6 +248,23 @@
                             :order-direction ::order-direction
                             :order-nulls ::order-nulls)))
 
+(s/def ::when
+  (s/and vector?
+         (s/cat
+          :when #(= :when %)
+          :condition ::value-expression
+          :then ::value-expression)))
+
+(s/def ::case
+  (s/and vector?
+         (s/cat
+          :case #(= :case %)
+          :value (s/? (s/and
+                       #(not (and (vector? %) (= :when (first %))))
+                       ::value-expression))
+          :whens (s/+ ::when)
+          :else (s/? ::value-expression))))
+
 (s/def ::updates
   (s/map-of keyword? ::value-expression))
 
@@ -272,6 +289,7 @@
    :fragment-fn ::fragment-fn
    :fragment-literal ::fragment-literal
    :cast ::cast
+   :case ::case
    :function-call ::function-call
    :wrapped-literal ::wrapped-literal
    :wrapped-column ::wrapped-column
@@ -334,6 +352,17 @@
 
       :cast
       (update-in node [1 :value] #(process-value-expression rel %))
+
+      :case
+      (-> node
+          (update-in [1 :value] #(when % (process-value-expression rel %)))
+          (update-in [1 :whens] (fn [whens]
+                                  (mapv (fn [when]
+                                          (-> when
+                                              (update :condition #(process-value-expression rel %))
+                                              (update :then #(process-value-expression rel %))))
+                                        whens)))
+          (update-in [1 :else] #(when % (process-value-expression rel %))))
 
       :unary-operation
       (-> node
@@ -1193,3 +1222,6 @@
 (s/fdef ->deletable
   :args (s/cat :relation ::relation)
   :ret ::deletable)
+
+(defn literal [val]
+  (->Wrapped :literal val))
