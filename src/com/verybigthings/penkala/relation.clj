@@ -1222,6 +1222,3 @@
 (s/fdef ->deletable
   :args (s/cat :relation ::relation)
   :ret ::deletable)
-
-(defn literal [val]
-  (->Wrapped :literal val))
