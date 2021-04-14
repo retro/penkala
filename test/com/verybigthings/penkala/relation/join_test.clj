@@ -55,7 +55,6 @@
              :alpha/beta-count 2}]
            res))))
 
-
 (deftest it-joins-a-view-with-an-explicit-pk-1
   (let [alpha (:alpha *env*)
         beta-view (-> *env* :beta-view (r/with-pk [:id]))
