@@ -1,14 +1,12 @@
 (ns com.verybigthings.penkala.statement.select
   (:require [clojure.string :as str]
-            [com.verybigthings.penkala.util :refer [q expand-join-path path-prefix-join join-separator vec-conj joins]]
+            [com.verybigthings.penkala.util :refer [q expand-join-path path-prefix-join  vec-conj joins]]
             [com.verybigthings.penkala.statement.shared
              :refer [get-rel-alias-with-prefix
                      get-rel-alias
-                     get-rel-schema
                      get-schema-qualified-relation-name
                      make-rel-alias-prefix]]
-            [camel-snake-kebab.core :refer [->SCREAMING_SNAKE_CASE_STRING ->snake_case_string]]
-            [com.verybigthings.penkala.env :as env]))
+            [camel-snake-kebab.core :refer [->SCREAMING_SNAKE_CASE_STRING ->snake_case_string]]))
 
 (def ^:dynamic *scopes* [])
 
@@ -34,8 +32,8 @@
         (str (q (get-rel-alias-with-prefix env rel-name)) "." (q (path-prefix-join col-parts))))
       (str (q (get-rel-alias-with-prefix env (get-rel-alias rel))) "." (q (:name col-def))))))
 
-(defmulti compile-function-call (fn [acc env rel function-name args] function-name))
-(defmulti compile-value-expression (fn [acc env rel [vex-type & _]] vex-type))
+(defmulti compile-function-call (fn [_ _ _ function-name _] function-name))
+(defmulti compile-value-expression (fn [_ _ _ [vex-type & _]] vex-type))
 
 (defmethod compile-function-call :default [acc env rel function-name args]
   (let [sql-function-name (->snake_case_string function-name)
@@ -48,7 +46,7 @@
         (update :query conj (str sql-function-name "(" (str/join ", " query) ")"))
         (update :params into params))))
 
-(defmethod compile-function-call :filter [acc env rel function-name [vex filter-vex]]
+(defmethod compile-function-call :filter [acc env rel _ [vex filter-vex]]
   (let [{vex-query :query vex-params :params} (compile-value-expression empty-acc env rel vex)
         {filter-vex-query :query filter-vex-params :params} (compile-value-expression empty-acc env rel filter-vex)]
     (-> acc
@@ -56,7 +54,7 @@
         (update :params into filter-vex-params)
         (update :query conj (str (str/join " " vex-query) " FILTER(WHERE " (str/join " " filter-vex-query) ")")))))
 
-(defmethod compile-value-expression :default [acc env rel [vex-type & args]]
+(defmethod compile-value-expression :default [_ _ _ [vex-type & args]]
   (throw
    (ex-info
     (str "com.verybigthings.penkala.statement.value-expression/compile-value-expression multimethod not implemented for " vex-type)
@@ -146,7 +144,7 @@
           (update :params into params)
           (update :query conj (str "(" (str/join " " (butlast query)) ")"))))))
 
-(defmethod compile-value-expression :param [acc env rel [_ param-name]]
+(defmethod compile-value-expression :param [acc _ rel [_ param-name]]
   (let [param-getter (fn [param-values]
                        (when (not (contains? param-values param-name))
                          (throw (ex-info (str "Missing param " param-name) {:relation rel :param param-name})))
@@ -155,7 +153,7 @@
         (update :query conj "?")
         (update :params conj param-getter))))
 
-(defmethod compile-value-expression :parent-scope [acc env rel [_ {:keys [args]}]]
+(defmethod compile-value-expression :parent-scope [acc _ rel [_ {:keys [args]}]]
   (let [parent-scope (last *scopes*)]
     (when-not parent-scope
       (throw (ex-info "Parent scope doesn't exist" {:relation rel})))
@@ -240,7 +238,7 @@
 
 
 (defmethod compile-value-expression :case [acc env rel [_ {:keys [value whens else]}]]
-  (-> empty-acc
+  (-> acc
       (update :query conj "CASE")
       (compile-case-value env rel value)
       (compile-case-whens env rel whens)
@@ -464,7 +462,7 @@
       (compile-order-by acc env rel order-by)
       acc)))
 
-(defn with-lock [acc env rel]
+(defn with-lock [acc _ rel]
   (let [{:keys [type rows]} (:lock rel)]
     (cond-> acc
       type (update :query conj (str "FOR " (-> type ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " "))))

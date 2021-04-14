@@ -106,22 +106,22 @@
   will be the schema name."
   ([db-spec] (get-env db-spec {}))
   ([db-spec config]
-   (let [current-schema (-> (jdbc/execute-one! db-spec ["SELECT current_schema"] get-env-next-jdbc-options) :current-schema)]
-     (let [#_#_enums (exec-internal-db-script db-spec :get-enums)
-           #_#_functions (exec-internal-db-script db-spec :get-functions
-                                                  (select-keys-with-default
-                                                   config [:functions/forbidden :functions/allowed :functions/exceptions :schemas/allowed] nil))
-           #_#_sequences (exec-internal-db-script db-spec :get-sequences)
-           tables (exec-internal-db-script db-spec :get-tables
-                                           (select-keys-with-default
-                                            config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))
-           views  (exec-internal-db-script db-spec :get-views
-                                           (select-keys-with-default
-                                            config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))]
-       (-> {}
-           (env/with-current-schema current-schema)
-           (env/with-db db-spec)
-           (with-relations (concat tables views)))))))
+   (let [current-schema (-> (jdbc/execute-one! db-spec ["SELECT current_schema"] get-env-next-jdbc-options) :current-schema)
+         #_#_enums (exec-internal-db-script db-spec :get-enums)
+         #_#_functions (exec-internal-db-script db-spec :get-functions
+                                                (select-keys-with-default
+                                                 config [:functions/forbidden :functions/allowed :functions/exceptions :schemas/allowed] nil))
+         #_#_sequences (exec-internal-db-script db-spec :get-sequences)
+         tables (exec-internal-db-script db-spec :get-tables
+                                         (select-keys-with-default
+                                          config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))
+         views  (exec-internal-db-script db-spec :get-views
+                                         (select-keys-with-default
+                                          config [:relations/forbidden :relations/allowed :relations/exceptions :schemas/allowed] nil))]
+     (-> {}
+         (env/with-current-schema current-schema)
+         (env/with-db db-spec)
+         (with-relations (concat tables views))))))
 
 (defn prettify-sql [sql]
   (SqlFormatter/format sql))

@@ -1,6 +1,6 @@
 (ns com.verybigthings.penkala.relation.querying-test
   (:require [clojure.test :refer [use-fixtures deftest is]]
-            [com.verybigthings.penkala.next-jdbc :refer [select! select-one! prettify-sql]]
+            [com.verybigthings.penkala.next-jdbc :refer [select! select-one!]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.helpers :as h]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]))

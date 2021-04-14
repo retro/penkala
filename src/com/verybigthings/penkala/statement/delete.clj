@@ -1,16 +1,10 @@
 (ns com.verybigthings.penkala.statement.delete
   (:require [clojure.string :as str]
-            [com.verybigthings.penkala.util :refer [q vec-conj]]
+            [com.verybigthings.penkala.util :refer [q]]
             [com.verybigthings.penkala.statement.shared
              :refer [get-rel-alias-with-prefix
-                     get-rel-alias
-                     get-rel-schema
-                     get-schema-qualified-relation-name
-                     make-rel-alias-prefix]]
-            [com.verybigthings.penkala.statement.select :as sel]
-            [camel-snake-kebab.core :refer [->SCREAMING_SNAKE_CASE_STRING ->snake_case_string]]
-            [com.verybigthings.penkala.env :as env]
-            [clojure.set :as set]))
+                     get-schema-qualified-relation-name]]
+            [com.verybigthings.penkala.statement.select :as sel]))
 
 (defn with-returning [acc env deletable]
   ;; deletable might have a from table set which will be reusing the joins map

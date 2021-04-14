@@ -1,11 +1,11 @@
 (ns com.verybigthings.penkala.relation
   (:refer-clojure :exclude [group-by extend distinct])
   (:require [clojure.spec.alpha :as s]
-            [camel-snake-kebab.core :refer [->kebab-case-keyword ->kebab-case-string]]
+            [camel-snake-kebab.core :refer [->kebab-case-string]]
             [clojure.string :as str]
             [clojure.walk :refer [prewalk]]
             [com.verybigthings.penkala.util
-             :refer [expand-join-path path-prefix-join path-prefix-split joins q as-vec col->alias]]
+             :refer [expand-join-path path-prefix-join  joins as-vec col->alias]]
             [com.verybigthings.penkala.statement.select :as sel]
             [com.verybigthings.penkala.statement.insert :as ins]
             [com.verybigthings.penkala.statement.update :as upd]

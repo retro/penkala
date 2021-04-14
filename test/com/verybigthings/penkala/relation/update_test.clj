@@ -1,9 +1,8 @@
 (ns com.verybigthings.penkala.relation.update-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [use-fixtures deftest is]]
             [com.verybigthings.penkala.next-jdbc :refer [update! select-one!]]
             [com.verybigthings.penkala.relation :as r]
-            [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
-            [com.verybigthings.penkala.decomposition :refer [map->DecompositionSchema]]))
+            [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]))
 
 (use-fixtures :each (partial th/reset-db-fixture "updatables"))
 

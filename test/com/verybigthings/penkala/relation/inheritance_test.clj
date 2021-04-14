@@ -1,6 +1,6 @@
 (ns com.verybigthings.penkala.relation.inheritance-test
-  (:require [clojure.test :refer :all]
-            [com.verybigthings.penkala.next-jdbc :refer [select! select-one!]]
+  (:require [clojure.test :refer [use-fixtures deftest is]]
+            [com.verybigthings.penkala.next-jdbc :refer [select!]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]))
 
