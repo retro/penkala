@@ -46,14 +46,6 @@
         (update :query conj (str sql-function-name "(" (str/join ", " query) ")"))
         (update :params into params))))
 
-(defmethod compile-function-call :filter [acc env rel _ [vex filter-vex]]
-  (let [{vex-query :query vex-params :params} (compile-value-expression empty-acc env rel vex)
-        {filter-vex-query :query filter-vex-params :params} (compile-value-expression empty-acc env rel filter-vex)]
-    (-> acc
-        (update :params into vex-params)
-        (update :params into filter-vex-params)
-        (update :query conj (str (str/join " " vex-query) " FILTER(WHERE " (str/join " " filter-vex-query) ")")))))
-
 (defmethod compile-value-expression :default [_ _ _ [vex-type & args]]
   (throw
    (ex-info
@@ -244,6 +236,14 @@
       (compile-case-whens env rel whens)
       (compile-case-else env rel else)
       (update :query conj "END")))
+
+(defmethod compile-value-expression :filter [acc env rel [_ {:keys [agg-vex filter-vex]}]]
+  (let [{agg-vex-query :query agg-vex-params :params} (compile-value-expression empty-acc env rel agg-vex)
+        {filter-vex-query :query filter-vex-params :params} (compile-value-expression empty-acc env rel filter-vex)]
+    (-> acc
+        (update :params into agg-vex-params)
+        (update :params into filter-vex-params)
+        (update :query conj (str (str/join " " agg-vex-query) " FILTER(WHERE " (str/join " " filter-vex-query) ")")))))
 
 (defn compile-order-by [acc env rel order-by]
   (let [{:keys [query params]}

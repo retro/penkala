@@ -265,6 +265,13 @@
           :whens (s/+ ::when)
           :else (s/? ::value-expression))))
 
+(s/def ::filter
+  (s/and vector?
+         (s/cat
+          :filter #(= :filter %)
+          :agg-vex ::value-expression
+          :filter-vex ::value-expression)))
+
 (s/def ::updates
   (s/map-of keyword? ::value-expression))
 
@@ -290,6 +297,7 @@
    :fragment-literal ::fragment-literal
    :cast ::cast
    :case ::case
+   :filter ::filter
    :function-call ::function-call
    :wrapped-literal ::wrapped-literal
    :wrapped-column ::wrapped-column
@@ -363,6 +371,11 @@
                                               (update :then #(process-value-expression rel %))))
                                         whens)))
           (update-in [1 :else] #(when % (process-value-expression rel %))))
+
+      :filter
+      (-> node
+          (update-in [1 :agg-vex] #(process-value-expression rel %))
+          (update-in [1 :filter-vex] #(process-value-expression rel %)))
 
       :unary-operation
       (-> node
