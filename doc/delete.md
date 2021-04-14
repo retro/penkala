@@ -58,9 +58,9 @@
 
 ```clojure
 (let [users-rel (:users *env*)
-  		del-users (-> users-del
-									(r/using (r/where users-rel [:= :id 1]) :other-users)
-								 	(r/where [:= :id :other-users/id]))]
+      del-users (-> users-del
+                  (r/using (r/where users-rel [:= :id 1]) :other-users)
+                  (r/where [:= :id :other-users/id]))]
   (delete! *env* del-users))
 
 => [#:users{:is-admin nil, :username "jon.doe", :id 1}]
@@ -68,12 +68,12 @@
 ;; multiple USING
 
 (let [users-rel (:users *env*)
-  		del-users (-> users-del
-									(r/using (r/where users-rel [:= :id 1]) :other-users-1)
-									(r/using (r/where users-rel [:= :id 1]) :other-users-2)
-								 	(r/where [:and
-								 	          [:= :id :other-users-1/id]
-								 	          [:= :id :other-users-2/id]]))]
+      del-users (-> users-del
+                  (r/using (r/where users-rel [:= :id 1]) :other-users-1)
+                  (r/using (r/where users-rel [:= :id 1]) :other-users-2)
+                  (r/where [:and
+                  	        [:= :id :other-users-1/id]
+                            [:= :id :other-users-2/id]]))]
   (delete! *env* del-users))
 
 => [#:users{:is-admin nil, :username "jon.doe", :id 1}]
