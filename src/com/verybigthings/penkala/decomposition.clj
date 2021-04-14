@@ -108,6 +108,7 @@
 
 (defn transform [schema mapping]
   (let [decompose-to (get schema :decompose-to :coll)
+        processor (get schema :processor identity)
         schemas      (:schemas schema)
         transformed  (reduce-kv
                       (fn [acc k row]
@@ -121,17 +122,18 @@
                                          (merge transformed-child))
                                      (assoc row' k transformed-child))))
                                row
-                               schemas)]
+                               schemas)
+                              transformed' (processor transformed)]
                           (cond
                             (= :coll decompose-to)
-                            (conj acc transformed)
+                            (conj acc transformed')
 
                             (= :indexed-by-pk decompose-to)
-                            (assoc acc k transformed)
+                            (assoc acc k transformed')
 
                              ;; decompose to :map and :parent should just return the map
                             :else
-                            transformed)))
+                            transformed')))
                       (if (= :coll decompose-to) [] {})
                       mapping)]
     (if (= :coll decompose-to)
@@ -171,14 +173,16 @@
       (vec (sort projection)))))
 
 (defn infer-flat-schema
-  ([relation path-prefix]
-   (let [columns (infer-flat-schema relation path-prefix {})]
+  ([relation overrides path-prefix]
+   (let [columns (infer-flat-schema relation overrides path-prefix {})
+         processor (get overrides :processor identity)]
      (map->DecompositionSchema
       {:pk (-> (vals columns) sort vec)
        :namespace false
        :schema columns
-       :decompose-to :coll})))
-  ([relation path-prefix schema]
+       :decompose-to :coll
+       :processor processor})))
+  ([relation overrides path-prefix schema]
    (let [with-columns (reduce
                        (fn [acc col-name]
                          (let [col-ns (when (seq path-prefix) (str/join "." (map name path-prefix)))
@@ -188,7 +192,7 @@
                        (:projection relation))]
      (reduce-kv
       (fn [acc alias join]
-        (infer-flat-schema (:relation join) (conj path-prefix alias) acc))
+        (infer-flat-schema (:relation join) overrides (conj path-prefix alias) acc))
       with-columns
       (:joins relation)))))
 
@@ -199,7 +203,7 @@
   ([relation overrides path-prefix]
    (cond
      (false? overrides)
-     (infer-flat-schema relation path-prefix)
+     (infer-flat-schema relation overrides path-prefix)
 
      (= DecompositionSchema (type overrides))
      overrides
@@ -213,6 +217,7 @@
                                  (->kebab-case-string (get-in relation [:spec :name]))
                                  default-namespace)
            decompose-to        (get overrides :decompose-to :coll)
+           processor           (get overrides :processor identity)
            columns             (reduce
                                 (fn [acc col-name]
                                   (assoc acc col-name (get-prefixed-col-name path-prefix col-name)))
@@ -233,7 +238,7 @@
                                       ;; to ensure that joining a same relation multiple times is not overriding values
                                       (let [join-schema (if (contains? #{:left :left-lateral :inner :inner-lateral} join-type)
                                                           (infer-schema join-relation join-overrides join-path)
-                                                          (infer-flat-schema join-relation join-path))]
+                                                          (infer-flat-schema join-relation join-overrides join-path))]
                                      ;; First we build join schema and then check if this level should be omitted.
                                      ;; If it should, we still need to pick up any joins on the levels below it.
                                      ;; This is not super efficient as we'll iterate through some columns multiple
@@ -255,4 +260,5 @@
         {:pk pk
          :decompose-to decompose-to
          :namespace namespace
-         :schema columns-with-joined})))))
+         :schema columns-with-joined
+         :processor processor})))))
