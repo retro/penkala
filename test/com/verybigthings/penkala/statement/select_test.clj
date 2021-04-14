@@ -1,5 +1,5 @@
 (ns com.verybigthings.penkala.statement.select-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.helpers :as h]
             [com.verybigthings.penkala.env :as env]))

@@ -1,9 +1,10 @@
 (ns com.verybigthings.penkala.relation.join-test
   (:require [clojure.test :refer [deftest use-fixtures is]]
-            [com.verybigthings.penkala.next-jdbc :refer [select! prettify-sql]]
+            [com.verybigthings.penkala.next-jdbc :refer [select!]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
-            [com.verybigthings.penkala.decomposition :refer [map->DecompositionSchema]]))
+            [com.verybigthings.penkala.decomposition :refer [map->DecompositionSchema]]
+            [clojure.string :as str]))
 
 (use-fixtures :once (partial th/reset-db-fixture "foreign-keys"))
 
@@ -738,4 +739,21 @@
              :alpha/id 3
              :alpha/val "three"}
             {:alpha/beta [], :alpha/id 4, :alpha/val "four"}]
+           res))))
+
+(deftest it-can-use-processor-in-decomposition-1
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        alpha-beta (-> alpha
+                       (r/join :inner beta :beta [:= :id :beta/alpha-id])
+                       (r/where [:> :id 1]))
+        res (select! *env* alpha-beta {} {:processor #(update % :alpha/val str/upper-case)
+                                          :schema {:beta {:processor #(update % :beta/val str/upper-case)}}})]
+    (is (= [{:alpha/beta [{:beta/alpha-id 2, :beta/id 2, :beta/j nil, :beta/val "ALPHA TWO"}]
+             :alpha/id 2
+             :alpha/val "TWO"}
+            {:alpha/beta [{:beta/alpha-id 3, :beta/id 3, :beta/j nil, :beta/val "ALPHA THREE"}
+                          {:beta/alpha-id 3, :beta/id 4, :beta/j nil, :beta/val "ALPHA THREE AGAIN"}]
+             :alpha/id 3
+             :alpha/val "THREE"}]
            res))))

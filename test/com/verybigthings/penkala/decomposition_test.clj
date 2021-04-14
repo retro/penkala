@@ -1,7 +1,7 @@
 (ns com.verybigthings.penkala.decomposition-test
-  (:require [clojure.test :refer :all]
-            [clojure.spec.alpha :as s]
-            [com.verybigthings.penkala.decomposition :as d]))
+  (:require [clojure.test :refer [deftest is]]
+            [com.verybigthings.penkala.decomposition :as d]
+            [clojure.string :as str]))
 
 
 (deftest it-should-return-nil-if-given-empty-data-and-schema
@@ -406,3 +406,46 @@
             :children1_val "c3"
             :parent_id_two 4
             :children1_children2_val "d4"}]))))
+
+(deftest it-should-process-items-with-processor-1
+  (let [data [{:parent_id 1 :parent_val "p1" :children_id 11 :children_val "c1"}
+              {:parent_id 1 :parent_val "p1" :children_id 12 :children_val "c2"}]]
+    (is (= [{:id 1
+             :val "p1"
+             :children-count 2
+             :children [{:id 11 :val "c1" :val-upcase "C1"}
+                        {:id 12 :val "c2" :val-upcase "C2"}]}]
+           (d/decompose
+            {:pk :parent_id
+             :processor (fn [val]
+                          (assoc val :children-count (-> val :children count)))
+             :schema {:id :parent_id
+                      :val :parent_val
+                      :children {:pk :children_id
+                                 :processor (fn [val]
+                                              (assoc val :val-upcase (-> val :val str/upper-case)))
+                                 :schema {:id :children_id :val :children_val}}}}
+            data)))))
+
+(deftest it-should-process-items-with-processor-2
+  (let [data [{:parent_id 1 :parent_val "p1" :children_id 11 :children_val "c1"}]]
+    (is (= [{:parent/id 1
+             :parent/val "p1"
+             :parent/val-upcased "P1"
+             :child/id 11
+             :child/val "c1"
+             :child/val-upcased "C1"}]
+           (d/decompose
+            {:pk :parent_id
+             :namespace :parent
+             :processor (fn [val]
+                          (assoc val :parent/val-upcased (-> val :parent/val str/upper-case)))
+             :schema {:id :parent_id
+                      :val :parent_val
+                      :children {:pk :children_id
+                                 :decompose-to :parent
+                                 :namespace :child
+                                 :processor (fn [val]
+                                              (assoc val :child/val-upcased (-> val :child/val str/upper-case)))
+                                 :schema {:id :children_id :val :children_val}}}}
+            data)))))
