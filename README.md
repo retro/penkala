@@ -217,7 +217,7 @@ If we have a `posts` relation:
                  :pk ["id"]
                  :schema "public"})
   
-(def posts-rel (r/spec->relation users-spec))
+(def posts-rel (r/spec->relation posts-spec))
 ```
 
 We can create an insertable record:
