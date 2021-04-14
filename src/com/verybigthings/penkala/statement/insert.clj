@@ -1,15 +1,8 @@
 (ns com.verybigthings.penkala.statement.insert
   (:require [clojure.string :as str]
-            [com.verybigthings.penkala.util :refer [q vec-conj]]
-            [com.verybigthings.penkala.statement.shared
-             :refer [get-rel-alias-with-prefix
-                     get-rel-alias
-                     get-rel-schema
-                     get-schema-qualified-relation-name
-                     make-rel-alias-prefix]]
+            [com.verybigthings.penkala.util :refer [q]]
+            [com.verybigthings.penkala.statement.shared :refer [get-schema-qualified-relation-name]]
             [com.verybigthings.penkala.statement.select :as sel]
-            [camel-snake-kebab.core :refer [->SCREAMING_SNAKE_CASE_STRING ->snake_case_string]]
-            [com.verybigthings.penkala.env :as env]
             [clojure.set :as set]))
 
 (defn with-returning [acc env insertable]
@@ -49,23 +42,22 @@
 
 (defn with-on-conflict-conflict-target [acc env insertable]
   (if-let [[conflict-target-type conflict-target] (get-in insertable [:on-conflict :conflict-target])]
-    (do
-      (case conflict-target-type
-        :value-expressions
-        (let [{:keys [query params]}
-              (reduce
-               (fn [acc conflict]
-                 (let [{:keys [query params]} (sel/compile-value-expression sel/empty-acc env insertable conflict)]
-                   (-> acc
-                       (update :query conj (str/join " " query))
-                       (update :params into params))))
-               sel/empty-acc
-               conflict-target)]
-          (-> acc
-              (update :query conj (str "(" (str/join ", " query) ")"))
-              (update :params into params)))
-        :on-constraint
-        (update acc :query into ["ON CONSTRAINT" conflict-target])))
+    (case conflict-target-type
+      :value-expressions
+      (let [{:keys [query params]}
+            (reduce
+             (fn [acc conflict]
+               (let [{:keys [query params]} (sel/compile-value-expression sel/empty-acc env insertable conflict)]
+                 (-> acc
+                     (update :query conj (str/join " " query))
+                     (update :params into params))))
+             sel/empty-acc
+             conflict-target)]
+        (-> acc
+            (update :query conj (str "(" (str/join ", " query) ")"))
+            (update :params into params)))
+      :on-constraint
+      (update acc :query into ["ON CONSTRAINT" conflict-target]))
     acc))
 
 (defn with-on-conflict [acc env insertable]

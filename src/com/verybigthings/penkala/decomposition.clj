@@ -1,7 +1,7 @@
 (ns com.verybigthings.penkala.decomposition
   (:require [clojure.spec.alpha :as s]
             [com.verybigthings.penkala.util :refer [as-vec path-prefix-join col->alias]]
-            [camel-snake-kebab.core :refer [->kebab-case-string ->kebab-case-keyword]]
+            [camel-snake-kebab.core :refer [->kebab-case-string]]
             [clojure.set :as set]
             [clojure.string :as str]))
 

@@ -1,6 +1,5 @@
 (ns com.verybigthings.penkala.test-helpers
-  (:require [clojure.test :refer :all]
-            [next.jdbc :as jdbc]
+  (:require [next.jdbc :as jdbc]
             [clojure.java.io :as io]
             [next.jdbc.result-set :as rs]
             [com.verybigthings.penkala.next-jdbc :refer [get-env]]))

@@ -2,7 +2,7 @@
   (:require [com.verybigthings.penkala.util :refer [q]]
             [com.verybigthings.penkala.env :as env]))
 
-(defn make-rel-alias-prefix [env]
+(defn make-rel-alias-prefix [_]
   (str (gensym "sq_")))
 
 (defn get-rel-alias-with-prefix [env rel-alias]
