@@ -354,3 +354,18 @@
             {:products/extended-col nil, :products/id 3}
             {:products/extended-col nil, :products/id 4}]
            res))))
+
+(deftest it-can-use-case-inside-other-expression
+  (let [products (-> *env*
+                     :products
+                     (r/extend :extended-col [:to-json [:case
+                                                        [:when [:= :id 1] "One"]
+                                                        [:when [:= :id 2] "Two"]]])
+                     (r/select [:id :extended-col]))
+        res (select! *env* products)]
+
+    (is (= [{:products/extended-col "One", :products/id 1}
+            {:products/extended-col "Two", :products/id 2}
+            {:products/extended-col nil, :products/id 3}
+            {:products/extended-col nil, :products/id 4}]
+           res))))
