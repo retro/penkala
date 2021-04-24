@@ -535,7 +535,7 @@
 (defn process-inserts [inserts]
   (reduce-kv
    (fn [m k v]
-     (if v
+     (if-not (nil? v)
        (assoc m k (s/conform ::value-expression v))
        (assoc m k v)))
    {}

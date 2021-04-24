@@ -96,7 +96,7 @@
                  (reduce
                   (fn [entry-acc col]
                     (let [col-value (get entry col)]
-                      (if col-value
+                      (if-not (nil? col-value)
                         (with-col-value entry-acc env insertable col-value)
                         (update entry-acc :query conj "DEFAULT"))))
                   {:query [] :params []}

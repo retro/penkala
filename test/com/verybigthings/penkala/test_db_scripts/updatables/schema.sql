@@ -3,52 +3,73 @@ CREATE SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE normal_pk (
-  id SERIAL NOT NULL PRIMARY KEY,
-  field1 TEXT NOT NULL,
-  field2 TEXT,
-  json_field JSONB,
-  array_field TEXT[],
-  array_of_json JSON[]
+  id serial NOT NULL PRIMARY KEY,
+  field1 text NOT NULL,
+  field2 text,
+  json_field jsonb,
+  array_field text[],
+  array_of_json json[]
 );
 
 CREATE TABLE uuid_pk (
-  id UUID NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
-  field1 TEXT
+  id uuid NOT NULL PRIMARY KEY DEFAULT gen_random_uuid (),
+  field1 text
 );
 
 CREATE TABLE compound_pk (
-  id1 SERIAL NOT NULL,
-  id2 SERIAL NOT NULL,
-  field1 TEXT
+  id1 serial NOT NULL,
+  id2 serial NOT NULL,
+  field1 text
 );
 
-ALTER TABLE compound_pk ADD PRIMARY KEY (id1, id2);
+ALTER TABLE compound_pk
+  ADD PRIMARY KEY (id1, id2);
 
 CREATE TABLE no_pk (
-  field1 TEXT,
-  field2 TEXT
+  field1 text,
+  field2 text
 );
 
 CREATE TABLE "CasedName" (
-  "Id" SERIAL NOT NULL PRIMARY KEY,
-  "Field1" TEXT
+  "Id" serial NOT NULL PRIMARY KEY,
+  "Field1" text
 );
 
 CREATE VIEW normal_as AS
-SELECT *
-FROM normal_pk
-WHERE field1 LIKE 'a%';
+SELECT
+  *
+FROM
+  normal_pk
+WHERE
+  field1 LIKE 'a%';
 
-INSERT INTO normal_pk (field1) VALUES ('alpha'), ('beta'), ('gamma');
-INSERT INTO compound_pk (field1) VALUES ('alpha'), ('beta'), ('gamma');
-INSERT INTO no_pk (field1, field2) VALUES ('alpha', 'beta'), ('gamma', 'delta'), ('epsilon', 'zeta');
-INSERT INTO "CasedName" ("Field1") VALUES ('Alpha'), ('Beta'), ('Gamma');
+INSERT INTO normal_pk (field1)
+  VALUES ('alpha'), ('beta'), ('gamma');
+
+INSERT INTO compound_pk (field1)
+  VALUES ('alpha'), ('beta'), ('gamma');
+
+INSERT INTO no_pk (field1, field2)
+  VALUES ('alpha', 'beta'), ('gamma', 'delta'), ('epsilon', 'zeta');
+
+INSERT INTO "CasedName" ("Field1")
+  VALUES ('Alpha'), ('Beta'), ('Gamma');
 
 CREATE TABLE things (
-  id SERIAL PRIMARY KEY,
-  stuff TEXT,
-  name TEXT
+  id serial PRIMARY KEY,
+  stuff text,
+  name text
 );
 
-CREATE UNIQUE INDEX stuff_name_idx
-ON things (stuff, lower(name));
+CREATE UNIQUE INDEX stuff_name_idx ON things (stuff, lower(name));
+
+CREATE TABLE booleans (
+  id serial PRIMARY KEY,
+  value boolean
+);
+
+CREATE TABLE booleans_with_default (
+  id serial PRIMARY KEY,
+  value boolean DEFAULT FALSE
+);
+

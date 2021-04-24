@@ -1,6 +1,6 @@
 (ns com.verybigthings.penkala.relation.update-test
   (:require [clojure.test :refer [use-fixtures deftest is]]
-            [com.verybigthings.penkala.next-jdbc :refer [update! select-one!]]
+            [com.verybigthings.penkala.next-jdbc :refer [update! insert! select-one!]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]))
 
@@ -98,3 +98,14 @@
                         :array-field nil
                         :id 3}]
            res))))
+
+(deftest it-updates-correctly-to-false-value
+  (let [booleans (:booleans *env*)
+        ins-booleans (r/->insertable booleans)
+        res (insert! *env* ins-booleans {:value true})
+        upd-booleans (-> booleans
+                         r/->updatable
+                         (r/where [:= :id (:booleans/id res)]))
+        res-2 (update! *env* upd-booleans {:value false})]
+    (is (= #:booleans{:id 1 :value true} res))
+    (is (= [#:booleans{:id 1 :value false}] res-2))))
