@@ -73,3 +73,11 @@ CREATE TABLE booleans_with_default (
   value boolean DEFAULT FALSE
 );
 
+CREATE TABLE things_2 (
+  id serial PRIMARY KEY,
+  my_stuff text,
+  my_name text
+);
+
+CREATE UNIQUE INDEX my_stuff_my_name_idx ON things_2 (my_stuff, lower(my_name));
+

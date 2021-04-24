@@ -29,7 +29,8 @@
            (fn [acc' col col-update]
              (let [col-id   (get-in insertable [:aliases->ids col])
                    col-name (get-in insertable [:columns col-id :name])
-                   {:keys [query params]} (sel/compile-value-expression sel/empty-acc env insertable col-update)]
+                   {:keys [query params]} (binding [sel/*use-column-db-name-for* (set/union sel/*use-column-db-name-for* #{"EXCLUDED"})]
+                                            (sel/compile-value-expression sel/empty-acc env insertable col-update))]
                (-> acc'
                    (update :query conj (str/join " " (into [(q col-name) "="] query)))
                    (update :params into params))))
