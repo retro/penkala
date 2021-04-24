@@ -253,3 +253,15 @@
         res        (insert! *env* ins-things {:stuff [:lower "STUFF"] :name [:upper "name"]})]
     (is (= #:things{:stuff "stuff" :name "NAME" :id 1}
            res))))
+
+(deftest it-correctly-inserts-false-value
+  (let [booleans (:booleans *env*)
+        ins-booleans (r/->insertable booleans)
+        res (insert! *env* ins-booleans {:value false})]
+    (is (= #:booleans{:id 1 :value false} res))))
+
+(deftest it-correctly-inserts-default-value
+  (let [booleans-with-default (:booleans-with-default *env*)
+        ins-booleans-with-default (r/->insertable booleans-with-default)
+        res (insert! *env* ins-booleans-with-default {:value nil})]
+    (is (= #:booleans-with-default{:id 1 :value false} res))))
