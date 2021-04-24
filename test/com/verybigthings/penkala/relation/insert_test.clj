@@ -265,3 +265,33 @@
         ins-booleans-with-default (r/->insertable booleans-with-default)
         res (insert! *env* ins-booleans-with-default {:value nil})]
     (is (= #:booleans-with-default{:id 1 :value false} res))))
+
+(deftest it-can-handle-conflicts-with-update-2
+  (let [things-2     (:things-2 *env*)
+        ins-things-2 (r/->insertable things-2)]
+    (insert! *env* ins-things-2 {:my-stuff "stuff" :my-name "NAME"})
+    (let [res (insert! *env*
+                       (-> ins-things-2
+                           (r/on-conflict-do-update
+                            [:my-stuff [:lower :my-name]]
+                            {:my-stuff [:concat :excluded/my-stuff "1"]
+                             :my-name [:concat :excluded/my-name "1"]}))
+                       {:my-stuff "stuff"
+                        :my-name "NAME"})]
+      (is (= #:things-2{:my-stuff "stuff1"
+                        :my-name "NAME1"
+                        :id 1}
+             res)))
+    (let [res (insert! *env*
+                       (-> ins-things-2
+                           (r/on-conflict-do-update
+                            [:my-stuff [:lower :my-name]]
+                            {:my-stuff [:concat :excluded/my-stuff "2"]
+                             :my-name [:concat :excluded/my-name "2"]}
+                            [:= :my-name "NAME1"]))
+                       {:my-stuff "stuff1"
+                        :my-name "NAME1"})]
+      (is (= #:things-2{:my-stuff "stuff12"
+                        :my-name "NAME12"
+                        :id 1}
+             res)))))

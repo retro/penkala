@@ -316,11 +316,14 @@
     (if (seq column-join-path)
       (let [column-join-path' (map keyword column-join-path)
             column-rel        (get-in rel (expand-join-path column-join-path'))
-            id                (get-in column-rel [:aliases->ids (keyword column-name)])]
+            id                (get-in column-rel [:aliases->ids (keyword column-name)])
+            db-name (get-in column-rel [:columns id :name])]
         (when id
-          {:path column-join-path' :id id :name column-name :original column}))
-      (when-let [id (get-in rel [:aliases->ids (keyword column-name)])]
-        {:id id :name column-name :original column}))))
+          {:path column-join-path' :id id :name column-name :original column :db-name db-name}))
+      (let [id (get-in rel [:aliases->ids (keyword column-name)])
+            db-name (get-in rel [:columns id :name])]
+        (when id
+          {:id id :name column-name :original column :db-name db-name})))))
 
 (defn extract-operator [[op-type operator]]
   (let [extracted-operator (if (= :operator op-type) operator (:subject operator))]
@@ -519,7 +522,8 @@
   (prewalk
    (fn [val]
      (if (and (vector? val) (= :resolved-column (first val)))
-       [:literal (-> val second :name)]
+       [:literal (or (-> val second :db-name)
+                     (-> val second :name))]
        val))
    value))
 

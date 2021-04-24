@@ -9,6 +9,7 @@
             [camel-snake-kebab.core :refer [->SCREAMING_SNAKE_CASE_STRING ->snake_case_string]]))
 
 (def ^:dynamic *scopes* [])
+(def ^:dynamic *use-column-db-name-for* #{})
 
 (def op->sql-op {})
 
@@ -26,7 +27,9 @@
         col-rel-path (vec (concat (::join-path-prefix env) (:path resolved-col)))]
     (if (seq col-rel-path)
       (let [col-rel   (get-in rel (expand-join-path col-rel-path))
-            col-alias (get-in col-rel [:ids->aliases col-id])
+            col-alias (if (contains? *use-column-db-name-for* (get-in col-rel [:spec :name]))
+                        (get-in col-rel [:columns col-id :name])
+                        (get-in col-rel [:ids->aliases col-id]))
             full-path (map name (conj col-rel-path col-alias))
             [rel-name & col-parts] full-path]
         (str (q (get-rel-alias-with-prefix env rel-name)) "." (q (path-prefix-join col-parts))))
