@@ -230,12 +230,15 @@
 
 
 (defmethod compile-value-expression :case [acc env rel [_ {:keys [value whens else]}]]
-  (-> acc
-      (update :query conj "CASE")
-      (compile-case-value env rel value)
-      (compile-case-whens env rel whens)
-      (compile-case-else env rel else)
-      (update :query conj "END")))
+  (let [{:keys [query params]} (-> empty-acc
+                                   (update :query conj "CASE")
+                                   (compile-case-value env rel value)
+                                   (compile-case-whens env rel whens)
+                                   (compile-case-else env rel else)
+                                   (update :query conj "END"))]
+    (-> acc
+        (update :params into params)
+        (update :query conj (str/join " " query)))))
 
 (defmethod compile-value-expression :filter [acc env rel [_ {:keys [agg-vex filter-vex]}]]
   (let [{agg-vex-query :query agg-vex-params :params} (compile-value-expression empty-acc env rel agg-vex)
