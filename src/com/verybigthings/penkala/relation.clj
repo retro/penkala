@@ -351,9 +351,9 @@
 
       :keyword
       (let [column (resolve-column rel args)]
-        (if column
-          [:resolved-column column]
-          node))
+        (when (nil? column)
+          (throw (ex-info-missing-column rel args)))
+        [:resolved-column column])
 
       (:connective :function-call :fragment-literal :fragment-fn)
       (update-in node [1 :args] (fn [args] (mapv #(process-value-expression rel %) args)))
@@ -439,9 +439,9 @@
   (reduce
    (fn [acc [_ node]]
      (let [column (resolve-column rel node)]
-       (if (or (nil? column))
-         (throw (ex-info-missing-column rel node))
-         (conj acc [:resolved-column column]))))
+       (when (nil? column)
+         (throw (ex-info-missing-column rel node)))
+       (conj acc [:resolved-column column])))
    []
    columns))
 
