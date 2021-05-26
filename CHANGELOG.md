@@ -1,2 +1,5 @@
 # Change Log
-All notable changes to this project will be documented in this file. This change log follows the conventions of [keepachangelog.com](http://keepachangelog.com/).
+
+## [0.1.0] - 2021-05-26
+
+- Penkala will now throw an exception if a keyword can't be matched to a column. Previously keyword was treated as a value which made it easy to write a query that looked correct, but had a wrong behavior.
