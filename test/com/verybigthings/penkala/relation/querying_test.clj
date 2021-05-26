@@ -369,3 +369,6 @@
             {:products/extended-col nil, :products/id 3}
             {:products/extended-col nil, :products/id 4}]
            res))))
+
+(deftest it-will-throw-if-keyword-cant-match-a-column
+  (is (thrown? clojure.lang.ExceptionInfo (-> (:products *env*) (r/where [:and [:= :id 2] [:= :name (keyword "Product 2")]])))))

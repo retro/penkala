@@ -14,3 +14,6 @@
   ([db] (with-db {} db))
   ([env db]
    (assoc env ::db db)))
+
+(defn get-db [env]
+  (::db env))

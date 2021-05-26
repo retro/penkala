@@ -5,6 +5,7 @@
             [hugsql.adapter.next-jdbc :as next-adapter]
             [hugsql.core :as h]
             [next.jdbc :as jdbc]
+            [next.jdbc.prepare]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.util :refer [select-keys-with-default]]
             [com.verybigthings.penkala.decomposition :as d]
