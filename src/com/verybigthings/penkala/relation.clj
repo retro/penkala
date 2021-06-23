@@ -121,7 +121,7 @@
   (s/and
    vector?
    (s/cat
-    :op #(contains? #{:union :except :intersect} %)
+    :op #(contains? #{:union :union-all :except :except-all :intersect :intersect-all} %)
     :args (s/+ ::value-expression))))
 
 (s/def ::binary-operation

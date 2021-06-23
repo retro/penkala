@@ -410,6 +410,43 @@
 
     (is (= #{2 3} (->> res (map :products/id) set)))))
 
+(deftest it-can-use-union-all-as-operator
+  (let [products (-> *env*
+                     :products
+                     (r/select [:id]))
+        query (-> products
+                  (r/where [:in :id [:union-all
+                                     (-> products (r/where [:= :id 1]))
+                                     (-> products (r/where [:= :id 2]))]]))
+        res (select! *env* query)]
+
+    (is (= #{1 2} (->> res (map :products/id) set)))))
+
+(deftest it-can-use-except-all-as-operator
+  (let [products (-> *env*
+                     :products
+                     (r/select [:id]))
+        query (-> products
+                  (r/where [:in :id [:except-all
+                                     products
+                                     (-> products (r/where [:= :id 2]))]]))
+        res (select! *env* query)]
+
+    (is (= #{1 3 4} (->> res (map :products/id) set)))))
+
+(deftest it-can-use-intersect-all-as-operator
+  (let [products (-> *env*
+                     :products
+                     (r/select [:id]))
+        query (-> products
+                  (r/where [:in :id [:intersect-all
+                                     products
+                                     (-> products (r/where [:in :id [1 2 3]]))
+                                     (-> products (r/where [:in :id [2 3]]))]]))
+        res (select! *env* query)]
+
+    (is (= #{2 3} (->> res (map :products/id) set)))))
+
 (deftest it-can-use-union-intersect-except-together
   (let [products (-> *env*
                      :products
