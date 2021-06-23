@@ -3,7 +3,7 @@
   <groupId>com.verybigthings</groupId>
   <artifactId>penkala</artifactId>
   <packaging>jar</packaging>
-  <version>0.0.2</version>
+  <version>0.1.0</version>
   <name>penkala</name>
   <description>Composable query builder for PostgreSQL.</description>
   <url>https://github.com/retro/penkala</url>
@@ -17,7 +17,7 @@
     <url>https://github.com/retro/penkala</url>
     <connection>scm:git:git://github.com/retro/penkala.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/retro/penkala.git</developerConnection>
-    <tag>900ede51c568017d02e9332a6ce1a2e4fac644f0</tag>
+    <tag>02d88bc2be4fd8e20cc49ee670d5136c1684d55c</tag>
   </scm>
   <build>
     <sourceDirectory>src</sourceDirectory>

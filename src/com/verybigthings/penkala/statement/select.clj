@@ -252,7 +252,12 @@
         (update :query conj (str (str/join " " agg-vex-query) " FILTER(WHERE " (str/join " " filter-vex-query) ")")))))
 
 (defmethod compile-value-expression :set-operation [acc env rel [_ {:keys [op args]}]]
-  (let [sql-op ({:union "UNION" :intersect "INTERSECT" :except "EXCEPT"} op)
+  (let [sql-op ({:union "UNION"
+                 :union-all "UNION ALL"
+                 :intersect "INTERSECT"
+                 :intersect-all "INTERSECT ALL"
+                 :except "EXCEPT"
+                 :except-all "EXCEPT ALL"} op)
         qps (reduce
              (fn [acc arg]
                (conj acc (compile-value-expression empty-acc env rel arg)))
