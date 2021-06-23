@@ -117,6 +117,13 @@
          :wrapped-operator #(and (= Wrapped (type %)) (= :unary-operator (:subject-type %))))
     :arg1 ::value-expression)))
 
+(s/def ::set-operation
+  (s/and
+   vector?
+   (s/cat
+    :op #(contains? #{:union :except :intersect} %)
+    :args (s/+ ::value-expression))))
+
 (s/def ::binary-operation
   (s/and
    vector?
@@ -146,6 +153,7 @@
     :column ::value-expression
     :in (s/or
          :relation ::relation
+         :set-operation ::set-operation
          :value-expressions (s/coll-of ::value-expression)))))
 
 (s/def ::cast
@@ -288,6 +296,7 @@
    :relation ::relation
    :connective ::connective
    :negation ::negation
+   :set-operation ::set-operation
    :unary-operation ::unary-operation
    :binary-operation ::binary-operation
    :ternary-operation ::ternary-operation

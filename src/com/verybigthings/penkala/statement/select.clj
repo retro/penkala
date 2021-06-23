@@ -251,6 +251,22 @@
         (update :params into filter-vex-params)
         (update :query conj (str (str/join " " agg-vex-query) " FILTER(WHERE " (str/join " " filter-vex-query) ")")))))
 
+(defmethod compile-value-expression :set-operation [acc env rel [_ {:keys [op args]}]]
+  (let [sql-op ({:union "UNION" :intersect "INTERSECT" :except "EXCEPT"} op)
+        qps (reduce
+             (fn [acc arg]
+               (conj acc (compile-value-expression empty-acc env rel arg)))
+             []
+             args)
+        query (->> qps
+                   (map #(str/join " " (:query %)))
+                   (interpose sql-op)
+                   (str/join " "))
+        params (into [] (apply concat (map :params qps)))]
+    (-> acc
+        (update :params into params)
+        (update :query conj (str "(" query ")")))))
+
 (defn compile-order-by [acc env rel order-by]
   (let [{:keys [query params]}
         (reduce
