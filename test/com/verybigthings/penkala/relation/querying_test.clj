@@ -372,3 +372,57 @@
 
 (deftest it-will-throw-if-keyword-cant-match-a-column
   (is (thrown? clojure.lang.ExceptionInfo (-> (:products *env*) (r/where [:and [:= :id 2] [:= :name (keyword "Product 2")]])))))
+
+(deftest it-can-use-union-as-operator
+  (let [products (-> *env*
+                     :products
+                     (r/select [:id]))
+        query (-> products
+                  (r/where [:in :id [:union
+                                     (-> products (r/where [:= :id 1]))
+                                     (-> products (r/where [:= :id 2]))]]))
+        res (select! *env* query)]
+
+    (is (= #{1 2} (->> res (map :products/id) set)))))
+
+(deftest it-can-use-except-as-operator
+  (let [products (-> *env*
+                     :products
+                     (r/select [:id]))
+        query (-> products
+                  (r/where [:in :id [:except
+                                     products
+                                     (-> products (r/where [:= :id 2]))]]))
+        res (select! *env* query)]
+
+    (is (= #{1 3 4} (->> res (map :products/id) set)))))
+
+(deftest it-can-use-intersect-as-operator
+  (let [products (-> *env*
+                     :products
+                     (r/select [:id]))
+        query (-> products
+                  (r/where [:in :id [:intersect
+                                     products
+                                     (-> products (r/where [:in :id [1 2 3]]))
+                                     (-> products (r/where [:in :id [2 3]]))]]))
+        res (select! *env* query)]
+
+    (is (= #{2 3} (->> res (map :products/id) set)))))
+
+(deftest it-can-use-union-intersect-except-together
+  (let [products (-> *env*
+                     :products
+                     (r/select [:id]))
+        query (-> products
+                  (r/where [:in :id
+                            [:except
+                             [:union
+                              (-> products (r/where [:in :id [1 2 4]]))
+                              [:intersect
+                               (-> products (r/where [:in :id [1 2]]))
+                               (-> products (r/where [:in :id [2 3]]))]]
+                             (-> products (r/where [:= :id 4]))]]))
+        res (select! *env* query)]
+
+    (is (= #{1 2} (->> res (map :products/id) set)))))

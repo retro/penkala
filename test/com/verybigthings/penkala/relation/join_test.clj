@@ -757,3 +757,29 @@
              :alpha/id 3
              :alpha/val "THREE"}]
            res))))
+
+(deftest it-can-use-aggregate-filter-with-joined-relation
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        alpha-beta (-> alpha
+                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/extend-with-aggregate :filter-agg [:> [:filter [:count :beta/id] [:= :beta/id 3]] 0]))
+        res (select! *env* alpha-beta)]
+
+    (is (= [#:alpha{:filter-agg false
+                    :val "one"
+                    :id 1
+                    :beta [#:beta{:val "alpha one", :j nil, :id 1, :alpha-id 1}]}
+            #:alpha{:filter-agg false
+                    :val "two"
+                    :id 2
+                    :beta [#:beta{:val "alpha two", :j nil, :id 2, :alpha-id 2}]}
+            #:alpha{:filter-agg true
+                    :val "three"
+                    :id 3
+                    :beta
+                    [#:beta{:val "alpha three again", :j nil, :id 4, :alpha-id 3}
+                     #:beta{:val "alpha three", :j nil, :id 3, :alpha-id 3}]}
+            #:alpha{:filter-agg false, :val "four", :id 4, :beta []}]
+           res))))
+
