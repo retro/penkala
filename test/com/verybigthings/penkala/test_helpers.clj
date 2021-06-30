@@ -19,3 +19,7 @@
   (reset-db db-preset)
   (binding [*env* (get-env db-uri)]
     (f)))
+
+(defn pagila-db-fixture [f]
+  (binding [*env* (get-env "jdbc:postgresql://localhost:5432/penkala_pagila?user=postgres")]
+    (f)))

@@ -497,12 +497,12 @@
 
 (defn with-offset [acc _ rel]
   (if-let [offset (:offset rel)]
-    (update acc :query conj (str "OFFSET " offset))
+    (update acc :query conj (str "OFFSET " offset " ROWS"))
     acc))
 
-(defn with-limit [acc _ rel]
-  (if-let [limit (:limit rel)]
-    (update acc :query conj (str "LIMIT " limit))
+(defn with-fetch [acc _ rel]
+  (if-let [fetch (:fetch rel)]
+    (update acc :query conj (str "FETCH NEXT " fetch " ROWS ONLY"))
     acc))
 
 (defn format-query-without-params-resolution [env rel]
@@ -516,7 +516,7 @@
                                    (with-order-by env rel)
                                    (with-lock env rel)
                                    (with-offset env rel)
-                                   (with-limit env rel))]
+                                   (with-fetch env rel))]
     (into [(str/join " " query)] params)))
 
 (defn format-query [env rel param-values]

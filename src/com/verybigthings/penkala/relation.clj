@@ -20,7 +20,7 @@
   (-having [this having-expression])
   (-or-having [this having-expression])
   (-offset [this offset])
-  (-limit [this limit])
+  (-fetch [this fetch])
   (-order-by [this orders])
   (-extend [this col-name extend-expression])
   (-extend-with-aggregate [this col-name agg-expression])
@@ -733,8 +733,8 @@
       (assoc this :order-by processed-orders)))
   (-offset [this offset]
     (assoc this :offset offset))
-  (-limit [this limit]
-    (assoc this :limit limit))
+  (-fetch [this fetch]
+    (assoc this :fetch fetch))
   (-union [this other-rel]
     (spec->relation (make-combined-relations-spec "UNION" this other-rel)))
   (-union-all [this other-rel]
@@ -869,14 +869,25 @@
   :ret ::relation)
 
 (defn limit
-  "Sets the limit parameter."
+  "Sets the fetch parameter. Equivalent to `fetch`, provided as a convenience"
   [rel limit]
-  (-limit rel limit))
+  (-fetch rel limit))
 
 (s/fdef limit
   :args (s/cat
          :rel ::relation
          :limit int?)
+  :ret ::relation)
+
+(defn fetch
+  "Sets the fetch parameter."
+  [rel fetch]
+  (-fetch rel fetch))
+
+(s/fdef fetch
+  :args (s/cat
+         :rel ::relation
+         :fetch int?)
   :ret ::relation)
 
 (defn order-by
