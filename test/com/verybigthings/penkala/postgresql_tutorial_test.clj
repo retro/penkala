@@ -1959,3 +1959,26 @@
                 {:label "B", :t-2/score 2}
                 {:label "A", :t-2/score 3}
                 {:label "B", :t-2/score 3}])))
+
+;; Penkala doesn't support NATURAL JOIN so these tests are skipped - https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-natural-join/
+
+(deftest group-by'
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-full-outer-join/
+  (testing "Using PostgreSQL GROUP BY without an aggregate function example"
+    (let [payments (-> *env*
+                       :payment
+                       (r/select [:customer-id])
+                       (r/group-by [:customer-id]))
+          res (-> (select! *env* payments nil false)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [{:customer-id 184}
+                  {:customer-id 87}
+                  {:customer-id 477}
+                  {:customer-id 273}
+                  {:customer-id 550}
+                  {:customer-id 51}
+                  {:customer-id 394}
+                  {:customer-id 272}
+                  {:customer-id 70}
+                  {:customer-id 190}]))))

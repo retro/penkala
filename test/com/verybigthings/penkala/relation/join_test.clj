@@ -779,3 +779,38 @@
             #:alpha{:filter-agg false, :val "four", :id 4, :beta []}]
            res))))
 
+;; This test has no logical sense, but it ensures that correct SQL is generated when joins have aggregates
+(deftest it-can-handle-aggregates-in-joins
+  (let [alpha (-> (:alpha *env*)
+                  (r/select [:id])
+                  (r/extend-with-aggregate :sum-id [:sum :id]))
+        beta (-> (:beta *env*)
+                 (r/select [:id :alpha-id])
+                 (r/extend-with-aggregate :sum-id [:sum :id]))
+        gamma (-> (:gamma *env*)
+                  (r/select [:id :beta-id])
+                  (r/extend-with-aggregate :sum-id [:sum :id]))
+        joined (-> alpha
+                   (r/inner-join
+                    (r/inner-join beta gamma :gamma [:= :id :gamma/beta-id])
+                    :beta [:= :id :beta/alpha-id])
+                   (r/where [:> :id 1]))
+        res (select! *env* joined {})]
+    (is (= [{:alpha/beta [{:beta/alpha-id 3,
+                           :beta/gamma [{:gamma/beta-id 3, :gamma/id 4, :gamma/sum-id 4}],
+                           :beta/id 3,
+                           :beta/sum-id 3}
+                          {:beta/alpha-id 3,
+                           :beta/gamma [{:gamma/beta-id 4, :gamma/id 5, :gamma/sum-id 5}],
+                           :beta/id 4,
+                           :beta/sum-id 4}],
+             :alpha/id 3,
+             :alpha/sum-id 3}
+            {:alpha/beta [{:beta/alpha-id 2,
+                           :beta/gamma [{:gamma/beta-id 2, :gamma/id 3, :gamma/sum-id 3}
+                                        {:gamma/beta-id 2, :gamma/id 2, :gamma/sum-id 2}],
+                           :beta/id 2,
+                           :beta/sum-id 2}],
+             :alpha/id 2,
+             :alpha/sum-id 2}]
+           res))))

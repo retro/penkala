@@ -22,6 +22,9 @@
 
 (def empty-acc {:query [] :params []})
 
+(defn empty-acc? [{:keys [query params]}]
+  (and (empty? query) (empty? params)))
+
 (defn get-resolved-column-identifier [env rel resolved-col col-def]
   (let [col-id       (:id resolved-col)
         col-rel-path (vec (concat (::join-path-prefix env) (:path resolved-col)))]
@@ -438,27 +441,46 @@
         (compile-value-expression env rel having))
     acc))
 
-(defn with-group-by-and-having
+
+
+(defn rel-should-be-grouped-by? [{:keys [projection aliases->ids columns]}]
+  (let [{:keys [aggregate group-by]} (reduce
+                                      (fn [{:keys [aggregate group-by] :as acc} alias]
+                                        (let [col-id  (get aliases->ids alias)
+                                              col-def (get columns col-id)]
+                                          (if (and aggregate group-by)
+                                            (reduced acc)
+                                            (if (= :aggregate (:type col-def))
+                                              (assoc acc :aggregate true)
+                                              (assoc acc :group-by true)))))
+                                      {:aggregate false
+                                       :group-by false}
+                                      projection)]
+    (and aggregate group-by)))
+
+(defn with-group-by
   ([acc env rel]
-   (let [group-by-stats (reduce
-                         (fn [acc alias]
-                           (let [col-id  (get-in rel [:aliases->ids alias])
-                                 col-def (get-in rel [:columns col-id])]
-                             (if (= :aggregate (:type col-def))
-                               (update acc :aggregate inc)
-                               (update acc :group-by inc))))
-                         {:aggregate 0
-                          :group-by 0}
-                         (:projection rel))]
-     (if (every? pos? (vals group-by-stats))
-       (let [{:keys [query params]} (with-group-by-and-having empty-acc env rel [])
-             acc' (-> acc
-                      (update :query conj (str "GROUP BY " (str/join ", " query)))
-                      (update :params into params))]
-         (with-having acc' env rel))
-       acc)))
-  ([acc env rel path-prefix]
-   (let [projection (get-in rel [:projection])
+   (let [{:keys [query params]} (with-group-by empty-acc env rel false [])]
+     (cond-> acc
+       (seq query) (update :query conj (str "GROUP BY " (str/join ", " query)))
+       (seq params) (update :params into params))))
+  ([acc env rel parent-has-group-by path-prefix]
+   (let [group-by-column-list (get-in rel [:group-by :column-list])
+         rel-should-be-grouped-by (rel-should-be-grouped-by? rel)
+         joins-acc (reduce-kv
+                    (fn [acc alias {:keys [relation projection]}]
+                      (let [relation' (update relation :projection #(or projection %))
+                            path-prefix' (conj path-prefix alias)
+                            parent-has-group-by' (or parent-has-group-by
+                                                     (seq group-by-column-list)
+                                                     rel-should-be-grouped-by)]
+                        (with-group-by acc env relation' parent-has-group-by' path-prefix')))
+                    empty-acc
+                    (get-in rel [:joins]))
+         projection (when (or parent-has-group-by
+                              (not (empty-acc? joins-acc))
+                              (rel-should-be-grouped-by? rel))
+                      (get-in rel [:projection]))
          acc'       (reduce
                      (fn [acc alias]
                        (let [col-id            (get-in rel [:aliases->ids alias])
@@ -468,6 +490,7 @@
                              col-name          (if (seq path-prefix) (path-prefix-join (rest col-path)) (:name col-def))
                              rel-alias         (if (seq path-prefix) (first path-prefix-names) (get-rel-alias rel))
                              col-type          (:type col-def)]
+
                          (cond
 
                            (or (seq path-prefix) (= col-type :concrete))
@@ -481,12 +504,17 @@
 
                            :else acc)))
                      acc
-                     (sort projection))]
-     (reduce-kv
-      (fn [acc' alias {:keys [relation projection]}]
-        (with-group-by-and-having acc' env (update relation :projection #(or projection %)) (conj path-prefix alias)))
-      acc'
-      (get-in rel [:joins])))))
+                     (sort (or group-by-column-list projection)))]
+     (-> acc'
+         (update :query into (:query joins-acc))
+         (update :params into (:params joins-acc))))))
+
+(defn with-group-by-and-having [acc env rel]
+  (let [group-by-type (get-in rel [:group-by :type] :group-by)
+        with-group-by-fn ({:group-by with-group-by} group-by-type)]
+    (-> acc
+        (with-group-by-fn env rel)
+        (with-having env rel))))
 
 (defn with-order-by [acc env rel]
   (let [order-by (:order-by rel)]

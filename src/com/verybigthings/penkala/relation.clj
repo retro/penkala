@@ -17,6 +17,7 @@
 (defprotocol IRelation
   (-lock [this lock-type locked-rows])
   (-join [this join-type join-rel join-alias join-on join-projection])
+  (-group-by [this group-by-column-list])
   (-having [this having-expression])
   (-or-having [this having-expression])
   (-offset [this offset])
@@ -687,6 +688,10 @@
                                                         :type join-type
                                                         :projection processed-join-projection})]
       (assoc-in with-join [:joins join-alias :on] (process-join-on join-alias with-join join-on))))
+  (-group-by [this group-by-column-list]
+    (let [processed-group-by-column-list (process-projection this (s/conform ::column-list group-by-column-list))]
+      (assoc this :group-by {:type :group-by
+                             :column-list processed-group-by-column-list})))
   (-having [this having-expression]
     (and-predicate this :having having-expression))
   (-or-having [this having-expression]
@@ -972,6 +977,16 @@
   :args (s/cat
          :rel ::relation
          :having-expression ::value-expression)
+  :ret ::relation)
+
+(defn group-by [rel group-by-column-list]
+  "Explicit GROUP BY. Penkala can infer a default GROUP BY expression, so this is not needed in most cases, but you can use it if you want to override the default behavior."
+  (-group-by rel group-by-column-list))
+
+(s/fdef group-by
+  :args (s/cat
+         :rel ::relation
+         :group-by-column-list ::column-list)
   :ret ::relation)
 
 (defn offset
