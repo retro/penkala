@@ -441,22 +441,29 @@
         (compile-value-expression env rel having))
     acc))
 
+(defn rel-column-types [{:keys [projection aliases->ids columns]}]
+  (map
+   (fn [alias]
+     (let [col-id (get aliases->ids alias)
+           col-def (get columns col-id)]
+       (:type col-def)))
+   projection))
 
+(defn rel-has-aggregate-column? [rel]
+  (->> rel
+       rel-column-types
+       (filter #(= :aggregate %))
+       first))
 
-(defn rel-should-be-grouped-by? [{:keys [projection aliases->ids columns]}]
-  (let [{:keys [aggregate group-by]} (reduce
-                                      (fn [{:keys [aggregate group-by] :as acc} alias]
-                                        (let [col-id  (get aliases->ids alias)
-                                              col-def (get columns col-id)]
-                                          (if (and aggregate group-by)
-                                            (reduced acc)
-                                            (if (= :aggregate (:type col-def))
-                                              (assoc acc :aggregate true)
-                                              (assoc acc :group-by true)))))
-                                      {:aggregate false
-                                       :group-by false}
-                                      projection)]
-    (and aggregate group-by)))
+(defn rel-has-non-aggregate-column? [rel]
+  (->> rel
+       rel-column-types
+       (remove #(= :aggregate %))
+       first))
+
+(defn rel-should-be-grouped-by? [rel]
+  (and (rel-has-aggregate-column? rel)
+       (rel-has-non-aggregate-column? rel)))
 
 (defn with-group-by
   ([acc env rel]
@@ -472,6 +479,7 @@
                       (let [relation' (update relation :projection #(or projection %))
                             path-prefix' (conj path-prefix alias)
                             parent-has-group-by' (or parent-has-group-by
+                                                     (rel-has-aggregate-column? rel)
                                                      (seq group-by-column-list)
                                                      rel-should-be-grouped-by)]
                         (with-group-by acc env relation' parent-has-group-by' path-prefix')))
@@ -481,30 +489,36 @@
                               (not (empty-acc? joins-acc))
                               (rel-should-be-grouped-by? rel))
                       (get-in rel [:projection]))
-         acc'       (reduce
-                     (fn [acc alias]
-                       (let [col-id            (get-in rel [:aliases->ids alias])
-                             col-def           (get-in rel [:columns col-id])
-                             path-prefix-names (mapv name path-prefix)
-                             col-path          (conj path-prefix-names (name alias))
-                             col-name          (if (seq path-prefix) (path-prefix-join (rest col-path)) (:name col-def))
-                             rel-alias         (if (seq path-prefix) (first path-prefix-names) (get-rel-alias rel))
-                             col-type          (:type col-def)]
+         acc'       (if group-by-column-list
+                      (reduce
+                       (fn [acc column]
+                         (compile-value-expression acc env rel column))
+                       acc
+                       group-by-column-list)
+                      (reduce
+                       (fn [acc alias]
+                         (let [col-id            (get-in rel [:aliases->ids alias])
+                               col-def           (get-in rel [:columns col-id])
+                               path-prefix-names (mapv name path-prefix)
+                               col-path          (conj path-prefix-names (name alias))
+                               col-name          (if (seq path-prefix) (path-prefix-join (rest col-path)) (:name col-def))
+                               rel-alias         (if (seq path-prefix) (first path-prefix-names) (get-rel-alias rel))
+                               col-type          (:type col-def)]
 
-                         (cond
+                           (cond
 
-                           (or (seq path-prefix) (= col-type :concrete))
-                           (update acc :query conj (str (q (get-rel-alias-with-prefix env rel-alias)) "." (q col-name)))
+                             (or (seq path-prefix) (= col-type :concrete))
+                             (update acc :query conj (str (q (get-rel-alias-with-prefix env rel-alias)) "." (q col-name)))
 
-                           (and (not (seq path-prefix)) (= :computed col-type))
-                           (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
-                             (-> acc
-                                 (update :params into params)
-                                 (update :query conj (str (str/join " " query)))))
+                             (and (not (seq path-prefix)) (= :computed col-type))
+                             (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
+                               (-> acc
+                                   (update :params into params)
+                                   (update :query conj (str (str/join " " query)))))
 
-                           :else acc)))
-                     acc
-                     (sort (or group-by-column-list projection)))]
+                             :else acc)))
+                       acc
+                       (sort projection)))]
      (-> acc'
          (update :query into (:query joins-acc))
          (update :params into (:params joins-acc))))))

@@ -6,7 +6,7 @@
             [com.verybigthings.penkala.next-jdbc :refer [insert! select!]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
-            [testit.core :refer [fact facts =in=>]]))
+            [testit.core :refer [fact facts => =in=>]]))
 
 ;;(use-fixtures :each (partial th/reset-db-fixture "pagila"))
 (use-fixtures :once th/pagila-db-fixture)
@@ -1981,4 +1981,190 @@
                   {:customer-id 394}
                   {:customer-id 272}
                   {:customer-id 70}
-                  {:customer-id 190}]))))
+                  {:customer-id 190}])))
+
+  (testing "Using PostgreSQL GROUP BY with SUM() function example"
+    (let [payments-explicit-group-by (-> *env*
+                                         :payment
+                                         (r/extend-with-aggregate :sum-amount [:sum :amount])
+                                         (r/select [:customer-id :sum-amount])
+                                         (r/group-by [:customer-id]))
+          ;; When using extend-with-aggregate Penkala can infer GROUP BY clause
+          payments-implicit-group-by (-> *env*
+                                         :payment
+                                         (r/extend-with-aggregate :sum-amount [:sum :amount])
+                                         (r/select [:customer-id :sum-amount]))
+          res-explicit (-> (select! *env* payments-explicit-group-by nil false)
+                           (subvec 0 10))
+          res-implicit (-> (select! *env* payments-implicit-group-by nil false)
+                           (subvec 0 10))]
+
+      (facts
+       res-implicit => res-explicit
+       res-implicit =in=> [{:customer-id 184, :sum-amount 90.77M}
+                           {:customer-id 87, :sum-amount 145.70M}
+                           {:customer-id 477, :sum-amount 109.78M}
+                           {:customer-id 273, :sum-amount 157.65M}
+                           {:customer-id 550, :sum-amount 159.68M}
+                           {:customer-id 51, :sum-amount 138.67M}
+                           {:customer-id 394, :sum-amount 84.78M}
+                           {:customer-id 272, :sum-amount 98.80M}
+                           {:customer-id 70, :sum-amount 80.82M}
+                           {:customer-id 190, :sum-amount 110.73M}]
+       res-explicit =in=> [{:customer-id 184, :sum-amount 90.77M}
+                           {:customer-id 87, :sum-amount 145.70M}
+                           {:customer-id 477, :sum-amount 109.78M}
+                           {:customer-id 273, :sum-amount 157.65M}
+                           {:customer-id 550, :sum-amount 159.68M}
+                           {:customer-id 51, :sum-amount 138.67M}
+                           {:customer-id 394, :sum-amount 84.78M}
+                           {:customer-id 272, :sum-amount 98.80M}
+                           {:customer-id 70, :sum-amount 80.82M}
+                           {:customer-id 190, :sum-amount 110.73M}])))
+
+  (testing "Using PostgreSQL GROUP BY clause with the JOIN clause"
+    (let [customer (-> *env*
+                       :customer
+                       (r/extend :full-name [:concat :first-name " " :last-name]))
+          payments-explicit-group-by (-> *env*
+                                         :payment
+                                         (r/extend-with-aggregate :sum-amount [:sum :amount])
+                                         (r/inner-join customer :customer [:using :customer-id] [:customer/full-name])
+                                         (r/select [:sum-amount])
+                                         (r/order-by [:sum-amount]) ;; Add order-by to get consistent results
+                                         (r/group-by [:customer/full-name]))
+          ;; When using extend-with-aggregate Penkala can infer GROUP BY clause
+          payments-implicit-group-by (-> *env*
+                                         :payment
+                                         (r/extend-with-aggregate :sum-amount [:sum :amount])
+                                         (r/inner-join customer :customer [:using :customer-id] [:customer/full-name])
+                                         (r/order-by [:sum-amount]) ;; Add order-by to get consistent results
+                                         (r/select [:sum-amount]))
+          res-explicit (-> (select! *env* payments-explicit-group-by nil false)
+                           (subvec 0 10))
+          res-implicit (-> (select! *env* payments-implicit-group-by nil false)
+                           (subvec 0 10))]
+
+      (facts
+       res-implicit => res-explicit
+       res-implicit =in=> [{:customer/full-name "CAROLINE BOWMAN", :sum-amount 50.85M}
+                           {:customer/full-name "LEONA OBRIEN", :sum-amount 50.86M}
+                           {:customer/full-name "BRIAN WYMAN", :sum-amount 52.88M}
+                           {:customer/full-name "JOHNNY TURPIN", :sum-amount 57.81M}
+                           {:customer/full-name "ANNIE RUSSELL", :sum-amount 58.82M}
+                           {:customer/full-name "KATHERINE RIVERA", :sum-amount 58.86M}
+                           {:customer/full-name "TIFFANY JORDAN", :sum-amount 59.86M}
+                           {:customer/full-name "ANITA MORALES", :sum-amount 62.85M}
+                           {:customer/full-name "MATTIE HOFFMAN", :sum-amount 64.78M}
+                           {:customer/full-name "KIRK STCLAIR", :sum-amount 64.81M}]
+       res-explicit =in=> [{:customer/full-name "CAROLINE BOWMAN", :sum-amount 50.85M}
+                           {:customer/full-name "LEONA OBRIEN", :sum-amount 50.86M}
+                           {:customer/full-name "BRIAN WYMAN", :sum-amount 52.88M}
+                           {:customer/full-name "JOHNNY TURPIN", :sum-amount 57.81M}
+                           {:customer/full-name "ANNIE RUSSELL", :sum-amount 58.82M}
+                           {:customer/full-name "KATHERINE RIVERA", :sum-amount 58.86M}
+                           {:customer/full-name "TIFFANY JORDAN", :sum-amount 59.86M}
+                           {:customer/full-name "ANITA MORALES", :sum-amount 62.85M}
+                           {:customer/full-name "MATTIE HOFFMAN", :sum-amount 64.78M}
+                           {:customer/full-name "KIRK STCLAIR", :sum-amount 64.81M}])))
+
+  (testing "Using PostgreSQL GROUP BY with COUNT() function example"
+    (let [payments-explicit-group-by (-> *env*
+                                         :payment
+                                         (r/extend-with-aggregate :count-payments [:count :payment-id])
+                                         (r/select [:staff-id :count-payments])
+                                         (r/group-by [:staff-id]))
+          ;; When using extend-with-aggregate Penkala can infer GROUP BY clause
+          payments-implicit-group-by (-> *env*
+                                         :payment
+                                         (r/extend-with-aggregate :count-payments [:count :payment-id])
+                                         (r/select [:staff-id :count-payments]))
+          res-explicit (select! *env* payments-explicit-group-by nil false)
+          res-implicit (select! *env* payments-implicit-group-by nil false)]
+
+      (facts
+       res-implicit => res-explicit
+       res-implicit =in=> [{:count-payments 7992, :staff-id 2}
+                           {:count-payments 8057, :staff-id 1}]
+       res-explicit =in=> [{:count-payments 7992, :staff-id 2}
+                           {:count-payments 8057, :staff-id 1}])))
+
+  (testing "Using PostgreSQL GROUP BY with SUM() function example"
+    (let [payments-explicit-group-by (-> *env*
+                                         :payment
+                                         (r/extend-with-aggregate :sum-amount [:sum :amount])
+                                         (r/select [:customer-id :sum-amount])
+                                         (r/group-by [:customer-id]))
+          ;; When using extend-with-aggregate Penkala can infer GROUP BY clause
+          payments-implicit-group-by (-> *env*
+                                         :payment
+                                         (r/extend-with-aggregate :sum-amount [:sum :amount])
+                                         (r/select [:customer-id :sum-amount]))
+          res-explicit (-> (select! *env* payments-explicit-group-by nil false)
+                           (subvec 0 10))
+          res-implicit (-> (select! *env* payments-implicit-group-by nil false)
+                           (subvec 0 10))]
+
+      (facts
+       res-implicit => res-explicit
+       res-implicit =in=> [{:customer-id 184, :sum-amount 90.77M}
+                           {:customer-id 87, :sum-amount 145.70M}
+                           {:customer-id 477, :sum-amount 109.78M}
+                           {:customer-id 273, :sum-amount 157.65M}
+                           {:customer-id 550, :sum-amount 159.68M}
+                           {:customer-id 51, :sum-amount 138.67M}
+                           {:customer-id 394, :sum-amount 84.78M}
+                           {:customer-id 272, :sum-amount 98.80M}
+                           {:customer-id 70, :sum-amount 80.82M}
+                           {:customer-id 190, :sum-amount 110.73M}]
+       res-explicit =in=> [{:customer-id 184, :sum-amount 90.77M}
+                           {:customer-id 87, :sum-amount 145.70M}
+                           {:customer-id 477, :sum-amount 109.78M}
+                           {:customer-id 273, :sum-amount 157.65M}
+                           {:customer-id 550, :sum-amount 159.68M}
+                           {:customer-id 51, :sum-amount 138.67M}
+                           {:customer-id 394, :sum-amount 84.78M}
+                           {:customer-id 272, :sum-amount 98.80M}
+                           {:customer-id 70, :sum-amount 80.82M}
+                           {:customer-id 190, :sum-amount 110.73M}])))
+
+  (testing "Using PostgreSQL GROUP BY clause with date column"
+    (let [payments-explicit-group-by (-> *env*
+                                         :payment
+                                         (r/extend-with-aggregate :sum-amount [:sum :amount])
+                                         (r/extend :paid-date [:date :payment-date])
+                                         (r/select [:paid-date :sum-amount])
+                                         (r/group-by [:paid-date]))
+          ;; When using extend-with-aggregate Penkala can infer GROUP BY clause
+          payments-implicit-group-by (-> *env*
+                                         :payment
+                                         (r/extend-with-aggregate :sum-amount [:sum :amount])
+                                         (r/extend :paid-date [:date :payment-date])
+                                         (r/select [:paid-date :sum-amount]))
+          res-explicit (-> (select! *env* payments-explicit-group-by nil false)
+                           (subvec 0 10))
+          res-implicit (-> (select! *env* payments-implicit-group-by nil false)
+                           (subvec 0 10))]
+
+      (facts
+       res-implicit => res-explicit
+       res-implicit =in=> [{:paid-date date?, :sum-amount 1135.32M}
+                           {:paid-date date?, :sum-amount 2727.76M}
+                           {:paid-date date?, :sum-amount 1485.49M}
+                           {:paid-date date?, :sum-amount 632.41M}
+                           {:paid-date date?, :sum-amount 62.86M}
+                           {:paid-date date?, :sum-amount 2464.06M}
+                           {:paid-date date?, :sum-amount 514.18M}
+                           {:paid-date date?, :sum-amount 671.43M}
+                           {:paid-date date?, :sum-amount 224.51M}
+                           {:paid-date date?, :sum-amount 2742.54M}]
+       res-explicit =in=> [{:paid-date date?, :sum-amount 1135.32M}
+                           {:paid-date date?, :sum-amount 2727.76M}
+                           {:paid-date date?, :sum-amount 1485.49M}
+                           {:paid-date date?, :sum-amount 632.41M}
+                           {:paid-date date?, :sum-amount 62.86M}
+                           {:paid-date date?, :sum-amount 2464.06M}
+                           {:paid-date date?, :sum-amount 514.18M}
+                           {:paid-date date?, :sum-amount 671.43M}
+                           {:paid-date date?, :sum-amount 224.51M}
+                           {:paid-date date?, :sum-amount 2742.54M}]))))

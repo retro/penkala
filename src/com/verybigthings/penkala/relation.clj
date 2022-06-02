@@ -689,7 +689,7 @@
                                                         :projection processed-join-projection})]
       (assoc-in with-join [:joins join-alias :on] (process-join-on join-alias with-join join-on))))
   (-group-by [this group-by-column-list]
-    (let [processed-group-by-column-list (process-projection this (s/conform ::column-list group-by-column-list))]
+    (let [processed-group-by-column-list (resolve-columns this (s/conform ::column-list group-by-column-list))]
       (assoc this :group-by {:type :group-by
                              :column-list processed-group-by-column-list})))
   (-having [this having-expression]
