@@ -56,6 +56,9 @@
     {:type vex-type
      :args args})))
 
+(defmethod compile-value-expression nil [acc _ _ _]
+  acc)
+
 (defmethod compile-value-expression :function-call [acc env rel [_ {:keys [fn args]}]]
   (compile-function-call acc env rel fn args))
 
@@ -231,7 +234,6 @@
           (update :params into params)))
     acc))
 
-
 (defmethod compile-value-expression :case [acc env rel [_ {:keys [value whens else]}]]
   (let [{:keys [query params]} (-> empty-acc
                                    (update :query conj "CASE")
@@ -404,15 +406,18 @@
   ([acc env rel path-prefix]
    (reduce-kv
     (fn [acc' alias j]
-      (let [join-sql-type (get joins (:type j))
+      (let [{join-type :type :keys [on relation]} j
+            join-sql-type (get joins join-type)
             join-alias    (->> (conj path-prefix alias) (map name) path-prefix-join)
-            join-relation (if (contains? #{:left-lateral :right-lateral} (:type j))
-                            (assoc (:relation j) :parent rel)
-                            (:relation j))
+            join-relation (if (contains? #{:left-lateral :right-lateral} join-type)
+                            (assoc relation :parent rel)
+                            relation)
             [join-query & join-params] (binding [*scopes* (conj *scopes* {:env env :rel rel})]
                                          (format-query-without-params-resolution env join-relation))
-            join-clause   [join-sql-type (str "(" join-query ")") (q (get-rel-alias-with-prefix env join-alias)) "ON"]
-            {:keys [query params]} (compile-value-expression {:query join-clause :params (vec join-params)} (assoc env ::join-path-prefix path-prefix) rel (:on j))]
+            join-clause   (cond-> [join-sql-type (str "(" join-query ")") (q (get-rel-alias-with-prefix env join-alias))]
+                            (seq on) (conj "ON"))
+            {:keys [query params]} (compile-value-expression {:query join-clause :params (vec join-params)} (assoc env ::join-path-prefix path-prefix) rel on)]
+
         (-> acc'
             (update :params into params)
             (update :query into query))))

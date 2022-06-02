@@ -432,43 +432,35 @@
     (let [distinct-demo (-> *env*
                             :distinct-demo
                             (r/distinct)
-                            (r/select [:bcolor]))
+                            (r/select [:bcolor])
+                            (r/order-by [:bcolor])) ;; add order-by to ensure test consistency
           res (select! *env* distinct-demo {} {:keep-nil? true})]
       (fact
-       res =in=> [#:distinct-demo{:bcolor nil}
+       res =in=> [#:distinct-demo{:bcolor "blue"}
                   #:distinct-demo{:bcolor "green"}
-                  #:distinct-demo{:bcolor "blue"}
-                  #:distinct-demo{:bcolor "red"}])))
+                  #:distinct-demo{:bcolor "red"}
+                  #:distinct-demo{:bcolor nil}])))
 
   (testing "Distinct multiple columns"
     (let [distinct-demo (-> *env*
                             :distinct-demo
                             (r/distinct)
-                            (r/select [:bcolor :fcolor]))
+                            (r/select [:bcolor :fcolor])
+                            (r/order-by [:bcolor :fcolor])) ;; add order-by to ensure test consistency
           res (select! *env* distinct-demo)]
       (fact
-       res =in=> [#:distinct-demo{:bcolor "blue"
-                                  :fcolor "green"}
-                  #:distinct-demo{:bcolor "red"
-                                  :fcolor nil}
-                  #:distinct-demo{:bcolor "blue"
-                                  :fcolor "red"}
-                  #:distinct-demo{:bcolor "red"
-                                  :fcolor "green"}
-                  #:distinct-demo{:bcolor "red"
-                                  :fcolor "red"}
-                  #:distinct-demo{:bcolor "red"
-                                  :fcolor "blue"}
-                  #:distinct-demo{:bcolor "green"
-                                  :fcolor "red"}
-                  #:distinct-demo{:bcolor nil
-                                  :fcolor "red"}
-                  #:distinct-demo{:bcolor "green"
-                                  :fcolor "green"}
-                  #:distinct-demo{:bcolor "blue"
-                                  :fcolor "blue"}
-                  #:distinct-demo{:bcolor "green"
-                                  :fcolor "blue"}])))
+       res =in=> [#:distinct-demo{:bcolor "blue", :fcolor "blue"}
+                  #:distinct-demo{:bcolor "blue", :fcolor "green"}
+                  #:distinct-demo{:bcolor "blue", :fcolor "red"}
+                  #:distinct-demo{:bcolor "green", :fcolor "blue"}
+                  #:distinct-demo{:bcolor "green", :fcolor "green"}
+                  #:distinct-demo{:bcolor "green", :fcolor "red"}
+                  #:distinct-demo{:bcolor "red", :fcolor "blue"}
+                  #:distinct-demo{:bcolor "red", :fcolor "green"}
+                  #:distinct-demo{:bcolor "red", :fcolor "red"}
+                  #:distinct-demo{:bcolor "red", :fcolor nil}
+                  #:distinct-demo{:bcolor nil, :fcolor "red"}])))
+
   (testing "Distinct on"
     (let [distinct-demo (-> *env*
                             :distinct-demo
@@ -498,6 +490,7 @@
                              :first-name "JAMIE"}
                   #:customer{:last-name "WAUGH"
                              :first-name "JAMIE"}])))
+
   (testing "WHERE clause with the AND operator (1)"
     (let [customer (-> *env*
                        :customer
@@ -509,6 +502,7 @@
       (fact
        res =in=> [#:customer{:last-name "RICE"
                              :first-name "JAMIE"}])))
+
   (testing "WHERE clause with the AND operator (2)"
     (let [customer (-> *env*
                        :customer
@@ -519,6 +513,7 @@
       (fact
        res =in=> [#:customer{:last-name "RICE"
                              :first-name "JAMIE"}])))
+
   (testing "WHERE clause with the OR operator (1)"
     (let [customer (-> *env*
                        :customer
@@ -532,6 +527,7 @@
                              :first-name "LAURA"}
                   #:customer{:last-name "GOOCH"
                              :first-name "ADAM"}])))
+
   (testing "WHERE clause with the OR operator (2)"
     (let [customer (-> *env*
                        :customer
@@ -544,6 +540,7 @@
                              :first-name "LAURA"}
                   #:customer{:last-name "GOOCH"
                              :first-name "ADAM"}])))
+
   (testing "WHERE clause with the IN operator"
     (let [customer (-> *env*
                        :customer
@@ -557,6 +554,7 @@
                              :first-name "ANNE"}
                   #:customer{:last-name "RUSSELL"
                              :first-name "ANNIE"}])))
+
   (testing "WHERE clause with the LIKE operator"
     (let [customer (-> *env*
                        :customer
@@ -574,6 +572,7 @@
                              :first-name "ANNIE"}
                   #:customer{:last-name "OLSON"
                              :first-name "ANNETTE"}])))
+
   (testing "WHERE clause with the BETWEEN operator"
     (let [customer (-> *env*
                        :customer
@@ -595,6 +594,7 @@
                              :name-length 5}
                   #:customer{:first-name "ANNE"
                              :name-length 4}])))
+
   (testing "WHERE clause with the NOT EQUAL operator"
     (let [customer (-> *env*
                        :customer
@@ -636,6 +636,7 @@
                   #:film{:title "AFRICAN EGG"
                          :film-id 5
                          :release-year 2006}])))
+
   (testing "Using LIMIT with OFFSET"
     (let [film (-> *env*
                    :film
@@ -657,6 +658,7 @@
                   #:film{:title "AIRPLANE SIERRA"
                          :film-id 7
                          :release-year 2006}])))
+
   (testing "Using LIMIT / OFFSET to get top / bottom N rows"
     (let [film (-> *env*
                    :film
@@ -721,6 +723,7 @@
                   #:film{:title "AFRICAN EGG"
                          :film-id 5
                          :release-year 2006}])))
+
   (testing "Using FETCH with OFFSET"
     (let [film (-> *env*
                    :film
@@ -742,6 +745,7 @@
                   #:film{:title "AIRPLANE SIERRA"
                          :film-id 7
                          :release-year 2006}])))
+
   (testing "Using FETCH / OFFSET to get top / bottom N rows"
     (let [film (-> *env*
                    :film
@@ -806,6 +810,7 @@
                   #:rental{:customer-id 1
                            :return-date datetime?
                            :rental-id 1422}]))
+
     (testing "Emulating IN with OR"
       (let [rental (-> *env*
                        :rental
@@ -831,6 +836,7 @@
                     #:rental{:customer-id 1
                              :return-date datetime?
                              :rental-id 1422}]))))
+
   (testing "NOT IN Operator"
     (let [rental (-> *env*
                      :rental
@@ -854,6 +860,7 @@
                   #:rental{:customer-id 549
                            :return-date datetime?
                            :rental-id 6}]))
+
     (testing "Emulating NOT IN with AND"
       (let [rental (-> *env*
                        :rental
@@ -989,3 +996,966 @@
                             :amount 0.99M
                             :payment-date datetime?
                             :payment-id 17424}]))))
+
+(deftest like
+  ;; https://www.postgresqltutorial.com/postgresql-like/
+
+  (testing "LIKE operator (1)"
+    (let [customer (-> *env*
+                       :customer
+                       (r/select [:first-name :last-name])
+                       (r/where [:like :first-name "JEN%"]))
+          res (select! *env* customer)]
+      (fact
+       res =in=> [#:customer{:last-name "DAVIS"
+                             :first-name "JENNIFER"}
+                  #:customer{:last-name "TERRY"
+                             :first-name "JENNIE"}
+                  #:customer{:last-name "CASTRO"
+                             :first-name "JENNY"}])))
+
+  (testing "LIKE operator (2)"
+    (let [customer (-> *env*
+                       :customer
+                       (r/select [:first-name :last-name])
+                       (r/where [:like :first-name "%ER%"]))
+          res (-> (select! *env* customer)
+                  (subvec 0 5))]
+      (fact
+       res =in=> [#:customer{:last-name "DAVIS"
+                             :first-name "JENNIFER"}
+                  #:customer{:last-name "LEE"
+                             :first-name "KIMBERLY"}
+                  #:customer{:last-name "CAMPBELL"
+                             :first-name "CATHERINE"}
+                  #:customer{:last-name "MORRIS"
+                             :first-name "HEATHER"}
+                  #:customer{:last-name "ROGERS"
+                             :first-name "TERESA"}])))
+
+  (testing "LIKE operator (3)"
+    (let [customer (-> *env*
+                       :customer
+                       (r/select [:first-name :last-name])
+                       (r/where [:like :first-name "_HER%"]))
+          res (select! *env* customer)]
+      (fact
+       res =in=> [#:customer{:last-name "MURPHY"
+                             :first-name "CHERYL"}
+                  #:customer{:last-name "WATSON"
+                             :first-name "THERESA"}
+                  #:customer{:last-name "MARSHALL"
+                             :first-name "SHERRY"}
+                  #:customer{:last-name "RHODES"
+                             :first-name "SHERRI"}])))
+
+  (testing "NOT LIKE operator"
+    (let [customer (-> *env*
+                       :customer
+                       (r/select [:first-name :last-name])
+                       (r/where [:not-like :first-name "JEN%"]))
+          res (-> (select! *env* customer)
+                  (subvec 0 5))]
+      (fact
+       res =in=> [#:customer{:last-name "SMITH"
+                             :first-name "MARY"}
+                  #:customer{:last-name "JOHNSON"
+                             :first-name "PATRICIA"}
+                  #:customer{:last-name "WILLIAMS"
+                             :first-name "LINDA"}
+                  #:customer{:last-name "JONES"
+                             :first-name "BARBARA"}
+                  #:customer{:last-name "BROWN"
+                             :first-name "ELIZABETH"}])))
+
+  (testing "ILIKE operator"
+    (let [customer (-> *env*
+                       :customer
+                       (r/select [:first-name :last-name])
+                       (r/where [:ilike :first-name "bar%"]))
+          res (select! *env* customer)]
+      (fact
+       res =in=> [#:customer{:last-name "JONES"
+                             :first-name "BARBARA"}
+                  #:customer{:last-name "LOVELACE"
+                             :first-name "BARRY"}]))))
+
+(deftest is-null
+  ;; https://www.postgresqltutorial.com/postgresql-is-null/
+
+  (testing "IS NULL operator"
+    (let [contacts (-> *env*
+                       :contacts
+                       (r/select [:id :first-name :last-name :email :phone])
+                       (r/where [:is-null :phone]))
+          res (select! *env* contacts)]
+      (fact
+       res =in=> [#:contacts{:email "john.doe@example.com"
+                             :last-name "Doe"
+                             :phone nil
+                             :first-name "John"
+                             :id 1}])))
+
+  (testing "IS NOT NULL operator"
+    (let [contacts (-> *env*
+                       :contacts
+                       (r/select [:id :first-name :last-name :email :phone])
+                       (r/where [:is-not-null :phone]))
+          res (select! *env* contacts)]
+      (fact
+       res =in=> [#:contacts{:email "lily.bush@example.com"
+                             :last-name "Bush"
+                             :phone "(408-234-2764)"
+                             :first-name "Lily"
+                             :id 2}]))))
+
+(deftest inner-join
+  ;; https://www.postgresqltutorial.com/postgresql-inner-join/
+
+  (testing "INNER JOIN two tables"
+    (let [payment (-> *env*
+                      :payment
+                      (r/select [:amount :payment-date :customer-id]))
+          customer (-> *env*
+                       :customer
+                       (r/select [:customer-id :first-name :last-name])
+                       (r/join :inner payment :payments [:= :customer-id :payments/customer-id])
+                       (r/order-by [:payments/payment-date]))
+          res (-> (select! *env* customer)
+                  (subvec 0 2))]
+      (fact
+       res =in=> [#:customer{:customer-id 130
+                             :last-name "HUNTER"
+                             :first-name "CHARLOTTE"
+                             :payments [#:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 6.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 5.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 6.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 0.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 5.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 3.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 0.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 5.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 130
+                                                  :amount 0.99M
+                                                  :payment-date datetime?}]}
+                  #:customer{:customer-id 459
+                             :last-name "COLLAZO"
+                             :first-name "TOMMY"
+                             :payments [#:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 9.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 6.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 7.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 6.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 7.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 10.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 3.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 5.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 3.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 3.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 6.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 5.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 6.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 9.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 10.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 6.99M
+                                                  :payment-date datetime?}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?}]}]))
+    (testing "LEFT LATERAL JOIN two tables"
+      ;; This example expands on the previous one (not present on the https://www.postgresqltutorial.com/postgresql-inner-join page)
+
+      ;; Instead of getting all customers with all payments, we'll get first two customers each with first two
+      ;; payments. This will require a bit more work, but is a good example of using more advanced composability
+      ;; features of Penkala.
+
+      (let [customer (:customer *env*)
+            payment (:payment *env*)
+            ;; First we want to get the customer ids for customer which have payment records. We want to get 
+            ;; the first two customer ids from payments ordered by payment date (so customer-ids that made the)
+            ;; first payments. Since we need two *different* ids (a customer could make multiple payments in a row)
+            ;; we use the window function to partition payments by customer-ids and then get rows where row-number is 1.
+            ;; `(r/wrap relation)` function used here forces another subselect layer so we can select only the
+            ;; `:customer-id` column from the outer layer. This allows us to pass this subselect to the IN operation
+            ;; in the final query.
+            customers-with-payments (-> payment
+                                        (r/extend-with-window :row-number [:row-number] [:customer-id] [:payment-date])
+                                        (r/select [:customer-id :row-number])
+                                        (r/order-by [:payment-date])
+                                        (r/wrap)
+                                        (r/where [:= :row-number 1])
+                                        (r/select [:customer-id])
+                                        (r/limit 2))
+
+            ;; This relation will be laft lateral joined to the parent relation, so we'll get
+            ;; two payments per customer. Notice `(r/with-parent relation customer)` and `[:parent-scope :customer-id]`
+            ;; - this allows the inner subquery to access the columns from the parent select without having
+            ;; to care about the aliasing performed by Penkala. For each customer we'll get two payments
+            payments-for-customer (-> payment
+                                      (r/select [:amount :payment-date :customer-id])
+                                      (r/with-parent customer)
+                                      (r/order-by [:payment-date])
+                                      (r/where [:= :customer-id [:parent-scope :customer-id]])
+                                      (r/limit 2))
+
+            ;; Final relation - we select customers where ids are in the result of the `customers-with-payments` query
+            ;; and we left lateral join `payments-for-customer` which will select two payments for each customer
+            customer (-> customer
+                         (r/join :left-lateral payments-for-customer :payments true)
+                         (r/where [:in :customer-id customers-with-payments])
+                         (r/select [:customer-id :first-name :last-name])
+                         (r/order-by [:payments/payment-date]))
+
+            res  (select! *env* customer)]
+        (fact
+         res =in=> [#:customer{:customer-id 130
+                               :last-name "HUNTER"
+                               :first-name "CHARLOTTE"
+                               :payments [#:payment{:customer-id 130
+                                                    :amount 2.99M
+                                                    :payment-date datetime?}
+                                          #:payment{:customer-id 130
+                                                    :amount 2.99M
+                                                    :payment-date datetime?}]}
+                    #:customer{:customer-id 459
+                               :last-name "COLLAZO"
+                               :first-name "TOMMY"
+                               :payments [#:payment{:customer-id 459
+                                                    :amount 2.99M
+                                                    :payment-date datetime?}
+                                          #:payment{:customer-id 459
+                                                    :amount 0.99M
+                                                    :payment-date datetime?}]}]))))
+
+  (testing "INNER JOIN three tables"
+    (let [staff (-> *env*
+                    :staff
+                    (r/select [:first-name :last-name :staff-id]))
+
+          payment (-> *env*
+                      :payment
+                      (r/select [:amount :payment-date :customer-id])
+                      (r/join :inner staff :staff [:= :staff-id :staff/staff-id]))
+
+          customer (-> *env*
+                       :customer
+                       (r/select [:customer-id :first-name :last-name])
+                       (r/join :inner payment :payments [:= :customer-id :payments/customer-id])
+                       (r/order-by [:payments/payment-date]))
+          res (-> (select! *env* customer)
+                  (subvec 0 2))]
+      (fact
+       res =in=> [#:customer{:customer-id 130
+                             :last-name "HUNTER"
+                             :first-name "CHARLOTTE"
+                             :payments [#:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 6.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 5.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 6.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 0.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 5.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 3.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 0.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 5.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 130
+                                                  :amount 0.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}]}
+                  #:customer{:customer-id 459
+                             :last-name "COLLAZO"
+                             :first-name "TOMMY"
+                             :payments [#:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 9.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 6.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 7.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 6.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 7.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 10.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 3.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 5.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 3.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 0.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 3.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 6.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 5.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 6.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 9.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 10.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 2.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 6.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Hillyer"
+                                                                  :first-name "Mike"
+                                                                  :staff-id 1}]}
+                                        #:payment{:customer-id 459
+                                                  :amount 4.99M
+                                                  :payment-date datetime?
+                                                  :staff [#:staff{:last-name "Stephens"
+                                                                  :first-name "Jon"
+                                                                  :staff-id 2}]}]}]))))
+
+(deftest left-join
+  ;; https://www.postgresqltutorial.com/postgresql-left-join/
+
+  (testing "LEFT JOIN (1)"
+    (let [inventory (-> *env*
+                        :inventory
+                        (r/select [:film-id :inventory-id]))
+          film (-> *env*
+                   :film
+                   ;; Last argument is join projection - `inventory` relation exposes two columns - `film-id` and
+                   ;; `inventory-id` but we're selecting only `inventory-id` from the joined relation
+                   (r/join :left inventory :inventory [:= :film-id :inventory/film-id] [:inventory/inventory-id])
+                   (r/order-by [:title :inventory/inventory-id])
+                   (r/select [:film-id :title]))
+          res (-> (select! *env* film)
+                  (subvec 0 2))]
+      (fact
+       res =in=> [#:film{:title "ACADEMY DINOSAUR"
+                         :film-id 1
+                         :inventory [#:inventory{:inventory-id 1}
+                                     #:inventory{:inventory-id 2}
+                                     #:inventory{:inventory-id 3}
+                                     #:inventory{:inventory-id 4}
+                                     #:inventory{:inventory-id 5}
+                                     #:inventory{:inventory-id 6}
+                                     #:inventory{:inventory-id 7}
+                                     #:inventory{:inventory-id 8}]}
+                  #:film{:title "ACE GOLDFINGER"
+                         :film-id 2
+                         :inventory [#:inventory{:inventory-id 9}
+                                     #:inventory{:inventory-id 10}
+                                     #:inventory{:inventory-id 11}]}])))
+
+  (testing "LEFT JOIN (2)"
+    (let [inventory (-> *env*
+                        :inventory
+                        (r/select [:film-id :inventory-id]))
+          film (-> *env*
+                   :film
+                   (r/join :left inventory :inventory [:= :film-id :inventory/film-id] [:inventory/inventory-id])
+                   (r/where [:is-null :inventory/film-id])
+                   (r/select [:film-id :title])
+                   (r/order-by [:title]))
+          res (-> (select! *env* film)
+                  (subvec 0 2))]
+      (fact
+       res =in=> [#:film{:title "ALICE FANTASIA"
+                         :film-id 14
+                         :inventory []}
+                  #:film{:title "APOLLO TEEN"
+                         :film-id 33
+                         :inventory []}]))))
+
+(deftest right-join
+  ;; https://www.postgresqltutorial.com/postgresql-right-join/
+  (testing "RIGHT JOIN (1)"
+    (let [film-reviews (-> *env*
+                           :film-reviews
+                           (r/select [:film-id :review]))
+          films (-> *env*
+                    :films
+                    (r/select [:title])
+                    (r/join :right film-reviews :film-reviews [:using :film-id] [:film-reviews/review]))
+        ;; Last argument is the decomposition schema. Right joins can't be decomposed correctly if the "left"
+        ;; table is missing values, so we're passing false to get unprocessed list of results
+          res (select! *env* films nil false)]
+      (fact
+       res =in=> [{:title "Joker", :film-reviews/review "Excellent"}
+                  {:title "Joker", :film-reviews/review "Awesome"}
+                  {:title "Avengers: Endgame", :film-reviews/review "Cool"}
+                  {:title nil, :film-reviews/review "Beautiful"}])))
+  (testing "RIGHT JOIN (2)"
+    (let [film-reviews (-> *env*
+                           :film-reviews
+                           (r/select [:film-id :review]))
+          films (-> *env*
+                    :films
+                    (r/select [:title])
+                    (r/where [:is-null :title])
+                    (r/join :right film-reviews :film-reviews [:using :film-id] [:film-reviews/review]))
+        ;; Last argument is the decomposition schema. Right joins can't be decomposed correctly if the "left"
+        ;; table is missing values, so we're passing false to get unprocessed list of results
+          res (select! *env* films nil false)]
+      (fact
+       res =in=> [{:title nil, :film-reviews/review "Beautiful"}]))))
+
+(deftest self-join
+  ;; https://www.postgresqltutorial.com/postgresql-self-join/
+  (testing "1 - Querying hierarchical data example"
+    (let [manager (-> *env*
+                      :employee
+                      (r/extend :manager [:concat :first-name " " :last-name]))
+          employee (-> *env*
+                       :employee
+                       (r/extend :employee [:concat :first-name " " :last-name]))
+          hierarchy (-> employee
+                        (r/join :left manager :manager [:= :manager-id :manager/employee-id] [:manager/manager])
+                        (r/select [:employee])
+                        (r/order-by [:manager/manager]))
+        ;; Last argument is the decomposition schema. We're passing false to get a flat list of results
+          res (select! *env* hierarchy nil false)]
+      (fact
+       res =in=> [{:employee "Windy Hays", :manager/manager nil}
+                  {:employee "Sau Norman", :manager/manager "Ava Christensen"}
+                  {:employee "Anna Reeves", :manager/manager "Ava Christensen"}
+                  {:employee "Salley Lester", :manager/manager "Hassan Conner"}
+                  {:employee "Kelsie Hays", :manager/manager "Hassan Conner"}
+                  {:employee "Tory Goff", :manager/manager "Hassan Conner"}
+                  {:employee "Ava Christensen", :manager/manager "Windy Hays"}
+                  {:employee "Hassan Conner", :manager/manager "Windy Hays"}])))
+
+  (testing "2 - Comparing the rows with the same table"
+    (let [film (:film *env*)
+          films (-> film
+                    (r/join :inner film :film-2 [:and [:<> :film-id :film-2/film-id] [:= :length :film-2/length]] [:film-2/title])
+                    (r/select [:title :length])
+                    (r/order-by [:title]))
+        ;; Last argument is the decomposition schema. We're passing false to get a flat list of results
+          res (-> (select! *env* films nil false)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [{:title "ACADEMY DINOSAUR", :length 86, :film-2/title "YENTL IDAHO"}
+                  {:title "ACADEMY DINOSAUR", :length 86, :film-2/title "ANNIE IDENTITY"}
+                  {:title "ACADEMY DINOSAUR", :length 86, :film-2/title "MIDNIGHT WESTWARD"}
+                  {:title "ACADEMY DINOSAUR", :length 86, :film-2/title "GANDHI KWAI"}
+                  {:title "ACE GOLDFINGER", :length 48, :film-2/title "RUSH GOODFELLAS"}
+                  {:title "ACE GOLDFINGER", :length 48, :film-2/title "PELICAN COMFORTS"}
+                  {:title "ACE GOLDFINGER", :length 48, :film-2/title "PARADISE SABRINA"}
+                  {:title "ACE GOLDFINGER", :length 48, :film-2/title "ODDS BOOGIE"}
+                  {:title "ACE GOLDFINGER", :length 48, :film-2/title "MIDSUMMER GROUNDHOG"}
+                  {:title "ACE GOLDFINGER", :length 48, :film-2/title "HEAVEN FREEDOM"}]))))
+
+(deftest full-outer-join
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-full-outer-join/
+  (testing "Full outer join"
+    (let [departments (:departments *env*)
+          employees (-> *env*
+                        :employees
+                        (r/join :full departments :departments [:= :department-id :departments/department-id]))
+          res (select! *env* employees nil false)]
+      (fact
+       res =in=> [{:department-id 1, :employee-name "Bette Nicholson", :employee-id 1, :departments/department-id 1, :departments/department-name "Sales"}
+                  {:department-id 1, :employee-name "Christian Gable", :employee-id 2, :departments/department-id 1, :departments/department-name "Sales"}
+                  {:department-id 2, :employee-name "Joe Swank", :employee-id 3, :departments/department-id 2, :departments/department-name "Marketing"}
+                  {:department-id 3, :employee-name "Fred Costner", :employee-id 4, :departments/department-id 3, :departments/department-name "HR"}
+                  {:department-id 4, :employee-name "Sandra Kilmer", :employee-id 5, :departments/department-id 4, :departments/department-name "IT"}
+                  {:department-id nil, :employee-name "Julia Mcqueen", :employee-id 6, :departments/department-id nil, :departments/department-name nil}
+                  {:department-id nil, :employee-name nil, :employee-id nil, :departments/department-id 5, :departments/department-name "Production"}])))
+  (testing "Full outer join - find departments without employees"
+    (let [departments (:departments *env*)
+          employees (-> *env*
+                        :employees
+                        (r/join :full departments :departments [:= :department-id :departments/department-id])
+                        (r/where [:is-null :employee-name]))
+          res (select! *env* employees nil false)]
+      (fact
+       res =in=> [{:department-id nil, :employee-name nil, :employee-id nil, :departments/department-id 5, :departments/department-name "Production"}])))
+  (testing "Full outer join - find employees without department"
+    (let [departments (:departments *env*)
+          employees (-> *env*
+                        :employees
+                        (r/join :full departments :departments [:= :department-id :departments/department-id])
+                        (r/where [:is-null :departments/department-name]))
+          res (select! *env* employees nil false)]
+      (fact
+       res =in=> [{:department-id nil, :employee-name "Julia Mcqueen", :employee-id 6, :departments/department-id nil, :departments/department-name nil}]))))
+
+(deftest cross-join
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-full-outer-join/
+  (let [t-2 (:t-2 *env*)
+        t-1 (-> *env*
+                :t-1
+                (r/join :cross t-2 :t-2 nil))
+        res (select! *env* t-1 nil false)]
+    (fact
+     res =in=> [{:label "A", :t-2/score 1}
+                {:label "B", :t-2/score 1}
+                {:label "A", :t-2/score 2}
+                {:label "B", :t-2/score 2}
+                {:label "A", :t-2/score 3}
+                {:label "B", :t-2/score 3}])))

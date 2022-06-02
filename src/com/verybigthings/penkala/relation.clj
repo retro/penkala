@@ -164,12 +164,19 @@
     :value ::value-expression
     :cast-type string?)))
 
+(s/def ::using
+  (s/and
+   vector?
+   (s/cat
+    :op #(= :using %)
+    :arg1 simple-keyword?)))
+
 (s/def ::function-call
   (s/and
    vector?
    (s/cat
     :fn #(and (keyword? %) (not (contains? all-operations %)))
-    :args (s/+ ::value-expression))))
+    :args (s/* ::value-expression))))
 
 (s/def ::parent-scope
   (s/and
@@ -307,6 +314,7 @@
    :cast ::cast
    :case ::case
    :filter ::filter
+   :using ::using
    :function-call ::function-call
    :wrapped-literal ::wrapped-literal
    :wrapped-column ::wrapped-column
@@ -383,6 +391,9 @@
                                               (update :then #(process-value-expression rel %))))
                                         whens)))
           (update-in [1 :else] #(when % (process-value-expression rel %))))
+
+      :using
+      (update-in node [1 :arg1] #(resolve-column rel %))
 
       :filter
       (-> node
@@ -489,7 +500,6 @@
    (sel/format-query-without-params-resolution env rel))
   ([rel env params]
    (sel/format-query env rel params)))
-
 
 (defn get-insert-query [insertable env]
   (ins/format-query env insertable))
@@ -639,7 +649,7 @@
     (reduce
      (fn [acc col]
        (if (keyword? col)
-         (let [col-ns (namespace col)
+         (let [col-ns (-> col namespace str)
                col-nss (str/split col-ns #"\.")]
            (when (not= join-alias-name (first col-nss))
              (throw (ex-info "Columns in join projection must be aliased with the join alias" {:join-alias join-alias :column col})))
@@ -649,6 +659,15 @@
          (conj acc col)))
      []
      join-projection)))
+
+(defn process-join-on [join-alias with-join join-on]
+  (let [conformed (process-value-expression with-join (s/conform ::value-expression join-on))]
+    ;; USING is getting rewritten here so we don't have to handle it down the line
+    (if (= :using (first conformed))
+      (let [col-name (get-in conformed [1 :arg1 :original])
+            expanded-value-expression [:= col-name (keyword (name join-alias) (name col-name))]]
+        (process-value-expression with-join (s/conform ::value-expression expanded-value-expression)))
+      conformed)))
 
 (defrecord Relation [spec]
   IRelation
@@ -664,9 +683,8 @@
                                                                          (s/conform ::column-list))))
           with-join (assoc-in this [:joins join-alias] {:relation join-rel'
                                                         :type join-type
-                                                        :projection processed-join-projection})
-          join-on'  (process-value-expression with-join (s/conform ::value-expression join-on))]
-      (assoc-in with-join [:joins join-alias :on] join-on')))
+                                                        :projection processed-join-projection})]
+      (assoc-in with-join [:joins join-alias :on] (when join-on (process-join-on join-alias with-join join-on)))))
   (-having [this having-expression]
     (and-predicate this :having having-expression))
   (-or-having [this having-expression]
