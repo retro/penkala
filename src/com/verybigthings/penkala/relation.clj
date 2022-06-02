@@ -298,6 +298,7 @@
 
 (s/def ::value-expression
   (s/or
+   :nil nil?
    :boolean boolean?
    :keyword keyword?
    :relation ::relation
@@ -351,6 +352,7 @@
 (defn process-value-expression [rel node]
   (let [[node-type args] node]
     (case node-type
+      :nil nil
       :wrapped-column
       (let [column (resolve-column rel args)]
         (when (nil? column)
@@ -684,7 +686,7 @@
           with-join (assoc-in this [:joins join-alias] {:relation join-rel'
                                                         :type join-type
                                                         :projection processed-join-projection})]
-      (assoc-in with-join [:joins join-alias :on] (when join-on (process-join-on join-alias with-join join-on)))))
+      (assoc-in with-join [:joins join-alias :on] (process-join-on join-alias with-join join-on))))
   (-having [this having-expression]
     (and-predicate this :having having-expression))
   (-or-having [this having-expression]
@@ -821,6 +823,103 @@
          :join-on ::value-expression
          :join-projection (s/? ::column-list))
   :ret ::relation)
+
+(defn left-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :left join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :left join-rel join-alias join-on join-projection)))
+
+(s/fdef left-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn left-lateral-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :left-lateral join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :left-lateral join-rel join-alias join-on join-projection)))
+
+(s/fdef left-lateral-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn right-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :right join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :right join-rel join-alias join-on join-projection)))
+
+(s/fdef right-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn inner-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :inner join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :inner join-rel join-alias join-on join-projection)))
+
+(s/fdef inner-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn inner-lateral-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :inner-lateral join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :inner-lateral join-rel join-alias join-on join-projection)))
+
+(s/fdef inner-lateral-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn full-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :full join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :full join-rel join-alias join-on join-projection)))
+
+(s/fdef full-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn cross-join
+  ([rel join-rel join-alias]
+   (-join rel :cross join-rel join-alias nil nil))
+  ([rel join-rel join-alias join-projection]
+   (-join rel :cross join-rel join-alias nil join-projection)))
+
+(s/fdef cross-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-projection (s/? ::column-list)))
 
 (defn where
   "And where operation. If there's already a where clause set, this clause will be joined with AND. Accepts a value

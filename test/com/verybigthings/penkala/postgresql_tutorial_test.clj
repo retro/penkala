@@ -1119,7 +1119,7 @@
           customer (-> *env*
                        :customer
                        (r/select [:customer-id :first-name :last-name])
-                       (r/join :inner payment :payments [:= :customer-id :payments/customer-id])
+                       (r/inner-join payment :payments [:= :customer-id :payments/customer-id])
                        (r/order-by [:payments/payment-date]))
           res (-> (select! *env* customer)
                   (subvec 0 2))]
@@ -1355,7 +1355,7 @@
             ;; Final relation - we select customers where ids are in the result of the `customers-with-payments` query
             ;; and we left lateral join `payments-for-customer` which will select two payments for each customer
             customer (-> customer
-                         (r/join :left-lateral payments-for-customer :payments true)
+                         (r/left-lateral-join payments-for-customer :payments true)
                          (r/where [:in :customer-id customers-with-payments])
                          (r/select [:customer-id :first-name :last-name])
                          (r/order-by [:payments/payment-date]))
@@ -1389,12 +1389,12 @@
           payment (-> *env*
                       :payment
                       (r/select [:amount :payment-date :customer-id])
-                      (r/join :inner staff :staff [:= :staff-id :staff/staff-id]))
+                      (r/inner-join staff :staff [:= :staff-id :staff/staff-id]))
 
           customer (-> *env*
                        :customer
                        (r/select [:customer-id :first-name :last-name])
-                       (r/join :inner payment :payments [:= :customer-id :payments/customer-id])
+                       (r/inner-join payment :payments [:= :customer-id :payments/customer-id])
                        (r/order-by [:payments/payment-date]))
           res (-> (select! *env* customer)
                   (subvec 0 2))]
@@ -1789,7 +1789,7 @@
                    :film
                    ;; Last argument is join projection - `inventory` relation exposes two columns - `film-id` and
                    ;; `inventory-id` but we're selecting only `inventory-id` from the joined relation
-                   (r/join :left inventory :inventory [:= :film-id :inventory/film-id] [:inventory/inventory-id])
+                   (r/left-join inventory :inventory [:= :film-id :inventory/film-id] [:inventory/inventory-id])
                    (r/order-by [:title :inventory/inventory-id])
                    (r/select [:film-id :title]))
           res (-> (select! *env* film)
@@ -1817,7 +1817,7 @@
                         (r/select [:film-id :inventory-id]))
           film (-> *env*
                    :film
-                   (r/join :left inventory :inventory [:= :film-id :inventory/film-id] [:inventory/inventory-id])
+                   (r/left-join inventory :inventory [:= :film-id :inventory/film-id] [:inventory/inventory-id])
                    (r/where [:is-null :inventory/film-id])
                    (r/select [:film-id :title])
                    (r/order-by [:title]))
@@ -1840,7 +1840,7 @@
           films (-> *env*
                     :films
                     (r/select [:title])
-                    (r/join :right film-reviews :film-reviews [:using :film-id] [:film-reviews/review]))
+                    (r/right-join film-reviews :film-reviews [:using :film-id] [:film-reviews/review]))
         ;; Last argument is the decomposition schema. Right joins can't be decomposed correctly if the "left"
         ;; table is missing values, so we're passing false to get unprocessed list of results
           res (select! *env* films nil false)]
@@ -1857,7 +1857,7 @@
                     :films
                     (r/select [:title])
                     (r/where [:is-null :title])
-                    (r/join :right film-reviews :film-reviews [:using :film-id] [:film-reviews/review]))
+                    (r/right-join film-reviews :film-reviews [:using :film-id] [:film-reviews/review]))
         ;; Last argument is the decomposition schema. Right joins can't be decomposed correctly if the "left"
         ;; table is missing values, so we're passing false to get unprocessed list of results
           res (select! *env* films nil false)]
@@ -1874,7 +1874,7 @@
                        :employee
                        (r/extend :employee [:concat :first-name " " :last-name]))
           hierarchy (-> employee
-                        (r/join :left manager :manager [:= :manager-id :manager/employee-id] [:manager/manager])
+                        (r/left-join manager :manager [:= :manager-id :manager/employee-id] [:manager/manager])
                         (r/select [:employee])
                         (r/order-by [:manager/manager]))
         ;; Last argument is the decomposition schema. We're passing false to get a flat list of results
@@ -1892,7 +1892,7 @@
   (testing "2 - Comparing the rows with the same table"
     (let [film (:film *env*)
           films (-> film
-                    (r/join :inner film :film-2 [:and [:<> :film-id :film-2/film-id] [:= :length :film-2/length]] [:film-2/title])
+                    (r/inner-join film :film-2 [:and [:<> :film-id :film-2/film-id] [:= :length :film-2/length]] [:film-2/title])
                     (r/select [:title :length])
                     (r/order-by [:title]))
         ;; Last argument is the decomposition schema. We're passing false to get a flat list of results
@@ -1916,7 +1916,7 @@
     (let [departments (:departments *env*)
           employees (-> *env*
                         :employees
-                        (r/join :full departments :departments [:= :department-id :departments/department-id]))
+                        (r/full-join departments :departments [:= :department-id :departments/department-id]))
           res (select! *env* employees nil false)]
       (fact
        res =in=> [{:department-id 1, :employee-name "Bette Nicholson", :employee-id 1, :departments/department-id 1, :departments/department-name "Sales"}
@@ -1930,7 +1930,7 @@
     (let [departments (:departments *env*)
           employees (-> *env*
                         :employees
-                        (r/join :full departments :departments [:= :department-id :departments/department-id])
+                        (r/full-join departments :departments [:= :department-id :departments/department-id])
                         (r/where [:is-null :employee-name]))
           res (select! *env* employees nil false)]
       (fact
@@ -1939,7 +1939,7 @@
     (let [departments (:departments *env*)
           employees (-> *env*
                         :employees
-                        (r/join :full departments :departments [:= :department-id :departments/department-id])
+                        (r/full-join departments :departments [:= :department-id :departments/department-id])
                         (r/where [:is-null :departments/department-name]))
           res (select! *env* employees nil false)]
       (fact
@@ -1950,7 +1950,7 @@
   (let [t-2 (:t-2 *env*)
         t-1 (-> *env*
                 :t-1
-                (r/join :cross t-2 :t-2 nil))
+                (r/cross-join t-2 :t-2))
         res (select! *env* t-1 nil false)]
     (fact
      res =in=> [{:label "A", :t-2/score 1}

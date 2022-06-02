@@ -12,7 +12,7 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta (-> alpha
-                       (r/join :inner beta :beta [:= :id :beta/alpha-id])
+                       (r/inner-join beta :beta [:= :id :beta/alpha-id])
                        (r/where [:= :id 3]))
         res (select! *env* alpha-beta)]
     (is (= [{:alpha/id 3
@@ -31,7 +31,7 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta (-> alpha
-                       (r/join :inner beta :beta [:= :id :beta/alpha-id] [:beta/alpha-id :beta/id])
+                       (r/inner-join beta :beta [:= :id :beta/alpha-id] [:beta/alpha-id :beta/id])
                        (r/where [:= :id 3]))
         res (select! *env* alpha-beta)]
     (is (= [{:alpha/id 3
@@ -47,7 +47,7 @@
                   (r/select [:id]))
         beta  (:beta *env*)
         alpha-beta (-> alpha
-                       (r/join :left beta :beta [:= :id :beta/alpha-id] [])
+                       (r/left-join beta :beta [:= :id :beta/alpha-id] [])
                        (r/extend-with-aggregate :beta-count [:count :id])
                        (r/where [:= :id 3]))
         res (select! *env* alpha-beta)]
@@ -60,7 +60,7 @@
   (let [alpha (:alpha *env*)
         beta-view (-> *env* :beta-view (r/with-pk [:id]))
         alpha-beta-view (-> alpha
-                            (r/join :inner beta-view :beta-view [:= :id :beta-view/alpha-id])
+                            (r/inner-join beta-view :beta-view [:= :id :beta-view/alpha-id])
                             (r/where [:= :id 3]))
         res (select! *env* alpha-beta-view)]
     (is (= [#:alpha{:id 3
@@ -73,7 +73,7 @@
   (let [alpha (:alpha *env*)
         beta-view (:beta-view *env*)
         alpha-beta-view (-> alpha
-                            (r/join :inner beta-view :beta-view [:= :id :beta-view/alpha-id])
+                            (r/inner-join beta-view :beta-view [:= :id :beta-view/alpha-id])
                             (r/where [:= :id 3]))
         res (select! *env* alpha-beta-view {} {:schema {:beta-view {:pk ["id"]}}})]
     (is (= [#:alpha{:id 3
@@ -87,7 +87,7 @@
         alpha (:alpha *env*)
         alpha-beta-view (-> beta-view
                             (r/with-pk [:id])
-                            (r/join :inner alpha :alpha [:= :alpha-id :alpha/id])
+                            (r/inner-join alpha :alpha [:= :alpha-id :alpha/id])
                             (r/where [:= :alpha/id 3]))
         res (select! *env* alpha-beta-view)]
     (is (= [{:beta-view/alpha [{:alpha/id 3, :alpha/val "three"}]
@@ -106,7 +106,7 @@
   (let [beta-view (:beta-view *env*)
         alpha (:alpha *env*)
         alpha-beta-view (-> beta-view
-                            (r/join :inner alpha :alpha [:= :alpha-id :alpha/id])
+                            (r/inner-join alpha :alpha [:= :alpha-id :alpha/id])
                             (r/where [:= :alpha/id 3]))
         res (select! *env* alpha-beta-view {} {:pk [:id]})]
     (is (= [{:beta-view/alpha [{:alpha/id 3, :alpha/val "three"}]
@@ -125,7 +125,7 @@
   (let [alpha (:alpha *env*)
         epsilon (:sch/epsilon *env*)
         alpha-epsilon (-> alpha
-                          (r/join :inner epsilon :epsilon [:= :id :epsilon/alpha-id]))
+                          (r/inner-join epsilon :epsilon [:= :id :epsilon/alpha-id]))
         res (select! *env* alpha-epsilon)]
     (is (= [{:alpha/epsilon [{:epsilon/alpha-id 1 :epsilon/id 1 :epsilon/val "alpha one"}]
              :alpha/id 1
@@ -139,13 +139,13 @@
         sch-delta (:sch/delta *env*)
         sch-epsilon (:sch/epsilon *env*)
         joined (-> alpha
-                   (r/join :inner
-                           (-> beta
-                               (r/join :inner gamma :gamma [:= :id :gamma/beta-id])
-                               (r/join :inner sch-delta :delta [:= :id :delta/beta-id]))
-                           :beta
-                           [:= :id :beta/alpha-id])
-                   (r/join :inner sch-epsilon :epsilon [:= :id :epsilon/alpha-id]))
+                   (r/inner-join
+                    (-> beta
+                        (r/inner-join gamma :gamma [:= :id :gamma/beta-id])
+                        (r/inner-join sch-delta :delta [:= :id :delta/beta-id]))
+                    :beta
+                    [:= :id :beta/alpha-id])
+                   (r/inner-join sch-epsilon :epsilon [:= :id :epsilon/alpha-id]))
         res (select! *env* joined)]
     (is (= [#:alpha{:val "one"
                     :id 1
@@ -170,7 +170,7 @@
   (let [beta (:beta *env*)
         sch-epsilon (:sch/epsilon *env*)
         beta-sch-epsilon (-> beta
-                             (r/join :inner sch-epsilon :epsilon [:= :val :epsilon/val]))
+                             (r/inner-join sch-epsilon :epsilon [:= :val :epsilon/val]))
         res (select! *env* beta-sch-epsilon)]
     (is (= [{:beta/alpha-id 1
              :beta/epsilon [{:epsilon/alpha-id 1, :epsilon/id 1, :epsilon/val "alpha one"}]
@@ -183,7 +183,7 @@
   (let [beta (:beta *env*)
         sch-epsilon (:sch/epsilon *env*)
         beta-sch-epsilon (-> beta
-                             (r/join :inner sch-epsilon :epsilon [:= :epsilon/val "alpha one"])
+                             (r/inner-join sch-epsilon :epsilon [:= :epsilon/val "alpha one"])
                              (r/where [:= :val "alpha three again"]))
         res (select! *env* beta-sch-epsilon)]
     (is (= [{:beta/alpha-id 3
@@ -197,8 +197,8 @@
   (let [beta (:beta *env*)
         sch-epsilon (:sch/epsilon *env*)
         beta-sch-epsilon (-> beta
-                             (r/join :inner sch-epsilon :epsilon
-                                     [:and [:= :epsilon/id 1] [:= :epsilon/val "alpha one"]])
+                             (r/inner-join sch-epsilon :epsilon
+                                           [:and [:= :epsilon/id 1] [:= :epsilon/val "alpha one"]])
                              (r/where [:= :val "alpha three again"]))
         res (select! *env* beta-sch-epsilon)]
     (is (= [{:beta/alpha-id 3
@@ -213,9 +213,9 @@
         alpha (:alpha *env*)
         sch-epsilon (:sch/epsilon *env*)
         beta-sch-epsilon (-> beta
-                             (r/join :inner alpha :alpha [:= :alpha/val "one"])
-                             (r/join :inner sch-epsilon :epsilon
-                                     [:and [:= :epsilon/id 1] [:= :epsilon/val "alpha one"]])
+                             (r/inner-join alpha :alpha [:= :alpha/val "one"])
+                             (r/inner-join sch-epsilon :epsilon
+                                           [:and [:= :epsilon/id 1] [:= :epsilon/val "alpha one"]])
                              (r/where [:= :val "alpha three again"]))
         res (select! *env* beta-sch-epsilon)]
     (is (= [{:beta/alpha-id 3
@@ -230,8 +230,8 @@
   (let [alpha (:alpha *env*)
         sch-epsilon (:sch/epsilon *env*)
         alpha-sch-epsilon (-> alpha
-                              (r/join :inner sch-epsilon :epsilon [:and [:= :epsilon/val "alpha one"]
-                                                                   [:= :id :epsilon/alpha-id]]))
+                              (r/inner-join sch-epsilon :epsilon [:and [:= :epsilon/val "alpha one"]
+                                                                  [:= :id :epsilon/alpha-id]]))
         res (select! *env* alpha-sch-epsilon)]
     (is (= [{:alpha/epsilon [{:epsilon/alpha-id 1, :epsilon/id 1, :epsilon/val "alpha one"}]
              :alpha/id 1
@@ -242,7 +242,7 @@
   (let [alpha (:alpha *env*)
         sch-epsilon (:sch/epsilon *env*)
         alpha-sch-epsilon  (-> alpha
-                               (r/join :inner sch-epsilon :epsilon [:is-null :epsilon/alpha-id])
+                               (r/inner-join sch-epsilon :epsilon [:is-null :epsilon/alpha-id])
                                (r/where [:= :val "one"]))
         res (select! *env* alpha-sch-epsilon)]
     (is (= [{:alpha/epsilon [{:epsilon/alpha-id nil, :epsilon/id 2, :epsilon/val "not two"}]
@@ -254,7 +254,7 @@
   (let [alpha (:alpha *env*)
         sch-epsilon (:sch/epsilon *env*)
         alpha-sch-epsilon  (-> alpha
-                               (r/join :inner sch-epsilon :epsilon [:in :epsilon/alpha-id [1 2]])
+                               (r/inner-join sch-epsilon :epsilon [:in :epsilon/alpha-id [1 2]])
                                (r/where [:= :val "one"]))
         res (select! *env* alpha-sch-epsilon)]
     (is (= [{:alpha/epsilon [{:epsilon/alpha-id 1, :epsilon/id 1, :epsilon/val "alpha one"}]
@@ -266,7 +266,7 @@
   (let [beta (:beta *env*)
         gamma (:gamma *env*)
         beta-gamma (-> beta
-                       (r/join :inner gamma :gamma [:= ["#>>" :j ["x" "y"]] ["#>>" :gamma/j ["z" "a"]]])
+                       (r/inner-join gamma :gamma [:= ["#>>" :j ["x" "y"]] ["#>>" :gamma/j ["z" "a"]]])
                        (r/where [:= :val "not five"]))
         res (select! *env* beta-gamma)]
     (is (= [{:beta/alpha-id nil
@@ -285,7 +285,7 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta (-> alpha
-                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/left-join beta :beta [:= :id :beta/alpha-id])
                        (r/where [:> :id 1]))
         res (select! *env* alpha-beta)]
     (is (= [{:alpha/beta [{:beta/alpha-id 2, :beta/id 2, :beta/j nil, :beta/val "alpha two"}]
@@ -302,7 +302,7 @@
   (let [alpha (:alpha *env*)
         epsilon (:sch/epsilon *env*)
         alpha-epsilon (-> alpha
-                          (r/join :inner epsilon :epsilon true)
+                          (r/inner-join epsilon :epsilon true)
                           (r/where [:= :id 1]))
         res (select! *env* alpha-epsilon)]
     (is (= [{:alpha/epsilon [{:epsilon/alpha-id 1, :epsilon/id 1, :epsilon/val "alpha one"}
@@ -315,7 +315,7 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta (-> alpha
-                       (r/join :inner beta :beta [:= :id :beta/alpha-id])
+                       (r/inner-join beta :beta [:= :id :beta/alpha-id])
                        (r/where [:> :id 1]))
         res (select! *env* alpha-beta)]
     (is (= [{:alpha/beta [{:beta/alpha-id 2, :beta/id 2, :beta/j nil, :beta/val "alpha two"}]
@@ -332,9 +332,8 @@
         beta (:beta *env*)
         gamma (:gamma *env*)
         joined (-> alpha
-                   (r/join
-                    :inner
-                    (r/join beta :inner gamma :gamma [:= :id :gamma/beta-id])
+                   (r/inner-join
+                    (r/inner-join beta gamma :gamma [:= :id :gamma/beta-id])
                     :beta [:= :id :beta/alpha-id])
                    (r/where [:> :id 1]))
         res (select! *env* joined)]
@@ -385,8 +384,8 @@
         alpha-zeta (r/with-pk (:alpha-zeta *env*) [:alpha-id :zeta-id])
         zeta (:zeta *env*)
         joined (-> alpha
-                   (r/join :left alpha-zeta :alpha-zeta [:= :id :alpha-zeta/alpha-id])
-                   (r/join :left zeta :zeta [:= :alpha-zeta/zeta-id :zeta/id])
+                   (r/left-join alpha-zeta :alpha-zeta [:= :id :alpha-zeta/alpha-id])
+                   (r/left-join zeta :zeta [:= :alpha-zeta/zeta-id :zeta/id])
                    (r/where [:in :id [1 3]]))
         res (select! *env* joined {} {:schema {:alpha-zeta {:decompose-to :omit}}})]
     (is (= [{:alpha/id 1
@@ -401,10 +400,10 @@
         alpha-zeta (r/with-pk (:alpha-zeta *env*) [:alpha-id :zeta-id])
         zeta (:zeta *env*)
         joined (-> alpha
-                   (r/join :left
-                           (-> alpha-zeta
-                               (r/join :left zeta :zeta [:= :zeta-id :zeta/id]))
-                           :alpha-zeta [:= :id :alpha-zeta/alpha-id])
+                   (r/left-join
+                    (-> alpha-zeta
+                        (r/left-join zeta :zeta [:= :zeta-id :zeta/id]))
+                    :alpha-zeta [:= :id :alpha-zeta/alpha-id])
                    (r/where [:in :id [1 3]]))
         res (select! *env* joined {} {:schema {:alpha-zeta {:decompose-to :omit}}})]
     (is (= [{:alpha/id 1
@@ -419,9 +418,8 @@
         beta (:beta *env*)
         gamma (:gamma *env*)
         joined (-> alpha
-                   (r/join
-                    :inner
-                    (r/join beta :inner gamma :gamma [:= :id :gamma/beta-id])
+                   (r/inner-join
+                    (r/inner-join beta gamma :gamma [:= :id :gamma/beta-id])
                     :beta [:= :id :beta/alpha-id])
                    (r/where [:> :id 1]))
         res (select! *env* joined {} false)]
@@ -480,9 +478,8 @@
         beta (:beta *env*)
         gamma (:gamma *env*)
         joined (-> alpha
-                   (r/join
-                    :inner
-                    (r/join beta :inner gamma :gamma [:= :id :gamma/beta-id])
+                   (r/inner-join
+                    (r/inner-join beta gamma :gamma [:= :id :gamma/beta-id])
                     :beta [:= :id :beta/alpha-id])
                    (r/where [:> :id 1]))
         res (select! *env* joined {} {:schema {:beta false}})]
@@ -537,9 +534,8 @@
         beta (:beta *env*)
         gamma (:gamma *env*)
         joined (-> alpha
-                   (r/join
-                    :right
-                    (r/join beta :inner gamma :gamma [:= :id :gamma/beta-id])
+                   (r/right-join
+                    (r/inner-join beta gamma :gamma [:= :id :gamma/beta-id])
                     :beta [:= :id :beta/alpha-id])
                    (r/where [:> :id 1]))
         res (select! *env* joined)]
@@ -593,10 +589,10 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta-1 (-> alpha
-                         (r/join :left beta :beta [:= :id :beta/alpha-id])
+                         (r/left-join beta :beta [:= :id :beta/alpha-id])
                          (r/where [:= :id 2]))
         alpha-beta-2 (-> alpha
-                         (r/join :left beta :beta [:= :id :beta/alpha-id])
+                         (r/left-join beta :beta [:= :id :beta/alpha-id])
                          (r/where [:= :id 3]))
         alpha-beta (r/union alpha-beta-1 alpha-beta-2)
         res (select! *env* alpha-beta {} (map->DecompositionSchema
@@ -625,10 +621,10 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta-1 (-> alpha
-                         (r/join :left beta :beta [:= :id :beta/alpha-id])
+                         (r/left-join beta :beta [:= :id :beta/alpha-id])
                          (r/where [:= :id 2]))
         alpha-beta-2 (-> alpha
-                         (r/join :left beta :beta [:= :id :beta/alpha-id])
+                         (r/left-join beta :beta [:= :id :beta/alpha-id])
                          (r/where [:= :id 3]))
         alpha-beta (r/union-all alpha-beta-1 alpha-beta-2)
         res (select! *env* alpha-beta {} (map->DecompositionSchema
@@ -657,10 +653,10 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta-1 (-> alpha
-                         (r/join :left beta :beta [:= :id :beta/alpha-id])
+                         (r/left-join beta :beta [:= :id :beta/alpha-id])
                          (r/where [:> :id 1]))
         alpha-beta-2 (-> alpha
-                         (r/join :left beta :beta [:= :id :beta/alpha-id])
+                         (r/left-join beta :beta [:= :id :beta/alpha-id])
                          (r/where [:= :id 3]))
         alpha-beta (r/except alpha-beta-1 alpha-beta-2)
         res (select! *env* alpha-beta {} (map->DecompositionSchema
@@ -686,10 +682,10 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta-1 (-> alpha
-                         (r/join :left beta :beta [:= :id :beta/alpha-id])
+                         (r/left-join beta :beta [:= :id :beta/alpha-id])
                          (r/where [:> :id 1]))
         alpha-beta-2 (-> alpha
-                         (r/join :left beta :beta [:= :id :beta/alpha-id])
+                         (r/left-join beta :beta [:= :id :beta/alpha-id])
                          (r/where [:= :id 3]))
         alpha-beta (r/intersect alpha-beta-1 alpha-beta-2)
         res (select! *env* alpha-beta {} (map->DecompositionSchema
@@ -715,7 +711,7 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta (-> alpha
-                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/left-join beta :beta [:= :id :beta/alpha-id])
                        (r/where [:> :id 1])
                        (r/wrap))
         res (select! *env* alpha-beta {} (map->DecompositionSchema
@@ -745,7 +741,7 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta (-> alpha
-                       (r/join :inner beta :beta [:= :id :beta/alpha-id])
+                       (r/inner-join beta :beta [:= :id :beta/alpha-id])
                        (r/where [:> :id 1]))
         res (select! *env* alpha-beta {} {:processor #(update % :alpha/val str/upper-case)
                                           :schema {:beta {:processor #(update % :beta/val str/upper-case)}}})]
@@ -762,7 +758,7 @@
   (let [alpha (:alpha *env*)
         beta (:beta *env*)
         alpha-beta (-> alpha
-                       (r/join :left beta :beta [:= :id :beta/alpha-id])
+                       (r/left-join beta :beta [:= :id :beta/alpha-id])
                        (r/extend-with-aggregate :filter-agg [:> [:filter [:count :beta/id] [:= :beta/id 3]] 0]))
         res (select! *env* alpha-beta)]
 
