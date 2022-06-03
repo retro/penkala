@@ -441,94 +441,130 @@
         (compile-value-expression env rel having))
     acc))
 
-(defn rel-column-types [{:keys [projection aliases->ids columns]}]
-  (map
-   (fn [alias]
-     (let [col-id (get aliases->ids alias)
-           col-def (get columns col-id)]
-       (:type col-def)))
-   projection))
+(defn rel-should-be-implicitely-grouped-by? [{:keys [projection aliases->ids columns joins]}]
+  (let [{:keys [aggregate non-aggregate]}
+        (reduce
+         (fn [acc alias]
+           (let [col-id (get aliases->ids alias)
+                 col-type (get-in columns [col-id :type])
+                 acc' (if (= :aggregate col-type)
+                        (assoc acc :aggregate true)
+                        (assoc acc :non-aggregate true))
+                 {:keys [aggregate non-aggregate]} acc']
+             (if (and aggregate non-aggregate)
+               (reduced acc')
+               acc')))
+         {:aggregate false
+          :non-aggregate false}
+         projection)]
 
-(defn rel-has-aggregate-column? [rel]
-  (->> rel
-       rel-column-types
-       (filter #(= :aggregate %))
-       first))
+    ;; This checks if we should add implicit group by clause. This should happen in two cases:
+    ;; 1. Relation has both aggregate and non-aggregate columns
+    ;; 2. Relation has aggregate column and it has at least one joined relation that has a projection
+    (cond
+      (and aggregate non-aggregate)
+      true
 
-(defn rel-has-non-aggregate-column? [rel]
-  (->> rel
-       rel-column-types
-       (remove #(= :aggregate %))
-       first))
+      aggregate
+      (->> joins
+           (map (fn [[_ join]]
+                  (or (-> join :projection seq)
+                      (-> join :relation :projection seq))))
+           (filter identity)
+           first)
 
-(defn rel-should-be-grouped-by? [rel]
-  (and (rel-has-aggregate-column? rel)
-       (rel-has-non-aggregate-column? rel)))
+      :else
+      false)))
 
-(defn with-group-by
-  ([acc env rel]
-   (let [{:keys [query params]} (with-group-by empty-acc env rel false [])]
-     (cond-> acc
-       (seq query) (update :query conj (str "GROUP BY " (str/join ", " query)))
-       (seq params) (update :params into params))))
-  ([acc env rel parent-has-group-by path-prefix]
-   (let [group-by-column-list (get-in rel [:group-by :column-list])
-         rel-should-be-grouped-by (rel-should-be-grouped-by? rel)
-         joins-acc (reduce-kv
-                    (fn [acc alias {:keys [relation projection]}]
-                      (let [relation' (update relation :projection #(or projection %))
-                            path-prefix' (conj path-prefix alias)
-                            parent-has-group-by' (or parent-has-group-by
-                                                     (rel-has-aggregate-column? rel)
-                                                     (seq group-by-column-list)
-                                                     rel-should-be-grouped-by)]
-                        (with-group-by acc env relation' parent-has-group-by' path-prefix')))
-                    empty-acc
-                    (get-in rel [:joins]))
-         projection (when (or parent-has-group-by
-                              (not (empty-acc? joins-acc))
-                              (rel-should-be-grouped-by? rel))
-                      (get-in rel [:projection]))
-         acc'       (if group-by-column-list
-                      (reduce
-                       (fn [acc column]
-                         (compile-value-expression acc env rel column))
-                       acc
-                       group-by-column-list)
-                      (reduce
-                       (fn [acc alias]
-                         (let [col-id            (get-in rel [:aliases->ids alias])
-                               col-def           (get-in rel [:columns col-id])
-                               path-prefix-names (mapv name path-prefix)
-                               col-path          (conj path-prefix-names (name alias))
-                               col-name          (if (seq path-prefix) (path-prefix-join (rest col-path)) (:name col-def))
-                               rel-alias         (if (seq path-prefix) (first path-prefix-names) (get-rel-alias rel))
-                               col-type          (:type col-def)]
+(defn with-implicit-group-by [acc env rel path-prefix]
+  (let [projection (get-in rel [:projection])
+        acc'       (reduce
+                    (fn [acc alias]
+                      (let [col-id            (get-in rel [:aliases->ids alias])
+                            col-def           (get-in rel [:columns col-id])
+                            path-prefix-names (mapv name path-prefix)
+                            col-path          (conj path-prefix-names (name alias))
+                            col-name          (if (seq path-prefix) (path-prefix-join (rest col-path)) (:name col-def))
+                            rel-alias         (if (seq path-prefix) (first path-prefix-names) (get-rel-alias rel))
+                            col-type          (:type col-def)]
 
-                           (cond
+                        (cond
 
-                             (or (seq path-prefix) (= col-type :concrete))
-                             (update acc :query conj (str (q (get-rel-alias-with-prefix env rel-alias)) "." (q col-name)))
+                          (or (seq path-prefix) (= col-type :concrete))
+                          (update acc :query conj (str (q (get-rel-alias-with-prefix env rel-alias)) "." (q col-name)))
 
-                             (and (not (seq path-prefix)) (= :computed col-type))
-                             (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
-                               (-> acc
-                                   (update :params into params)
-                                   (update :query conj (str (str/join " " query)))))
+                          (and (not (seq path-prefix)) (= :computed col-type))
+                          (let [{:keys [query params]} (compile-value-expression empty-acc env rel (:value-expression col-def))]
+                            (-> acc
+                                (update :params into params)
+                                (update :query conj (str (str/join " " query)))))
 
-                             :else acc)))
-                       acc
-                       (sort projection)))]
-     (-> acc'
-         (update :query into (:query joins-acc))
-         (update :params into (:params joins-acc))))))
+                          :else acc)))
+                    acc
+                    (sort projection))]
+    (reduce-kv
+     (fn [acc alias {:keys [relation projection]}]
+       (let [relation' (update relation :projection #(or projection %))
+             path-prefix' (conj path-prefix alias)]
+         (with-implicit-group-by acc env relation' path-prefix')))
+     acc'
+     (get-in rel [:joins]))))
+
+(defn with-explicit-group-by [acc env {:keys [group-by] :as rel}]
+  (reduce
+   (fn [acc vex]
+     (let [[vex-type vex-value] vex]
+       ;; If we're referencing a value from joined relation, we just want to place the identifier here
+       (if (and (= :resolved-column vex-type) (seq (:path vex-value)))
+         (let [col-path (concat (::join-path-prefix env) (:path vex-value))
+               col-rel  (if (seq col-path) (get-in rel (expand-join-path col-path)) rel)
+               col-def  (get-in col-rel [:columns (:id vex-value)])]
+           (update acc :query conj (get-resolved-column-identifier env rel vex-value col-def)))
+         (compile-value-expression acc env rel vex))))
+   acc
+   group-by))
+
+(defn with-group-by [acc env {:keys [group-by] :as rel}]
+  (let [{:keys [query params]} (cond
+                                 group-by
+                                 (with-explicit-group-by empty-acc env rel)
+
+                                 (rel-should-be-implicitely-grouped-by? rel)
+                                 (with-implicit-group-by empty-acc env rel [])
+
+                                 :else
+                                 empty-acc)]
+    (cond-> acc
+      (seq query) (update :query conj (str "GROUP BY " (str/join ", " query)))
+      (seq params) (update :params into params))))
+
+#_(defn with-grouping-sets [acc env rel]
+    (let [grouping-sets (get-in rel [:group-by :grouping-sets])
+          {:keys [query params]}
+          (reduce
+           (fn [acc grouping-set]
+             (if (seq grouping-sets)
+               (let [{:keys [query params]}
+                     (reduce
+                      (fn [acc' vex]
+                        (compile-value-expression acc' env rel vex))
+                      empty-acc
+                      grouping-set)]
+                 (-> acc
+                     (update :params into params)
+                     (update :query conj (str "(" (str/join ", " query) ")"))))
+               (update acc :query conj "()")))
+           empty-acc
+           grouping-sets)]
+      (-> acc
+          (update :params into params)
+          (update :query conj (str "GROUP BY GROUPING SETS (" (str/join ", " query) ")")))))
+
 
 (defn with-group-by-and-having [acc env rel]
-  (let [group-by-type (get-in rel [:group-by :type] :group-by)
-        with-group-by-fn ({:group-by with-group-by} group-by-type)]
-    (-> acc
-        (with-group-by-fn env rel)
-        (with-having env rel))))
+  (-> acc
+      (with-group-by env rel)
+      (with-having env rel)))
 
 (defn with-order-by [acc env rel]
   (let [order-by (:order-by rel)]

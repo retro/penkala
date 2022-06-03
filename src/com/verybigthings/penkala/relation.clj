@@ -327,6 +327,9 @@
 (s/def ::column-list
   (s/coll-of ::column-identifier))
 
+(s/def ::grouping-sets
+  (s/coll-of ::column-list))
+
 (defn resolve-column [rel node]
   (let [column           (if (keyword? node) node (:subject node))
         column-ns        (namespace column)
@@ -690,8 +693,7 @@
       (assoc-in with-join [:joins join-alias :on] (process-join-on join-alias with-join join-on))))
   (-group-by [this group-by-column-list]
     (let [processed-group-by-column-list (resolve-columns this (s/conform ::column-list group-by-column-list))]
-      (assoc this :group-by {:type :group-by
-                             :column-list processed-group-by-column-list})))
+      (assoc this :group-by processed-group-by-column-list)))
   (-having [this having-expression]
     (and-predicate this :having having-expression))
   (-or-having [this having-expression]
@@ -979,8 +981,10 @@
          :having-expression ::value-expression)
   :ret ::relation)
 
-(defn group-by [rel group-by-column-list]
-  "Explicit GROUP BY. Penkala can infer a default GROUP BY expression, so this is not needed in most cases, but you can use it if you want to override the default behavior."
+(defn group-by
+  "Explicit GROUP BY. Penkala can infer a default GROUP BY expression, so this is not needed in most cases, but you can use it if you want to override the default behavior.
+   Use this function if you want to GROUP BY GROUPING SETS, ROLLUP or CUBE"
+  [rel group-by-column-list]
   (-group-by rel group-by-column-list))
 
 (s/fdef group-by

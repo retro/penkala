@@ -2186,6 +2186,7 @@
     (let [{:keys [top-rated-films most-popular-films]} *env*
           rel (-> top-rated-films
                   (r/union-all most-popular-films))
+          ;; We need to use :keep-duplicates? because otherwise Penkala decomposition layer will remove duplicate rows
           res (select! *env* rel nil {:keep-duplicates? true})]
       (fact
        res =in=> [#:top-rated-films-most-popular-films{:title "The Shawshank Redemption", :release-year 1994}
@@ -2200,6 +2201,7 @@
           rel (-> top-rated-films
                   (r/union-all most-popular-films)
                   (r/order-by [:title]))
+          ;; We need to use :keep-duplicates? because otherwise Penkala decomposition layer will remove duplicate rows
           res (select! *env* rel nil {:keep-duplicates? true})]
       (fact
        res =in=> [#:top-rated-films-most-popular-films{:title "12 Angry Men", :release-year 1957}
@@ -2257,3 +2259,56 @@
           res (select! *env* stores)]
       (fact
        res =in=> [#:customer{:store-id 1, :customer-id-count 326}]))))
+
+#_(deftest grouping-sets
+    (testing "Introduction to PostgreSQL GROUPING SETS"
+      (let [sales (-> *env*
+                      :sales
+                      (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                      (r/select [:brand :segment :sum-quantity])
+                      (r/group-by [[:grouping-sets [:brand :segment] [:brand] [:segment] []]]))
+            res (select! *env* sales)]
+        (fact
+         res =in=> [#:sales{:sum-quantity 700, :brand nil, :segment nil}
+                    #:sales{:sum-quantity 300, :brand "XYZ", :segment "Basic"}
+                    #:sales{:sum-quantity 100, :brand "ABC", :segment "Premium"}
+                    #:sales{:sum-quantity 200, :brand "ABC", :segment "Basic"}
+                    #:sales{:sum-quantity 100, :brand "XYZ", :segment "Premium"}
+                    #:sales{:sum-quantity 300, :brand "ABC", :segment nil}
+                    #:sales{:sum-quantity 400, :brand "XYZ", :segment nil}
+                    #:sales{:sum-quantity 500, :brand nil, :segment "Basic"}
+                    #:sales{:sum-quantity 200, :brand nil, :segment "Premium"}])))
+
+    #_(testing "Grouping function 1"
+        (let [sales (-> *env*
+                        :sales
+                        (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                        (r/extend :grouping-brand [:grouping :brand])
+                        (r/extend :grouping-segment [:grouping :segment])
+                        (r/select [:grouping-brand :grouping-segment :brand :segment :sum-quantity])
+                        (r/group-by [[:grouping-sets [:brand] [:segment] []]])
+                        (r/order-by [:brand :segment]))
+              res (select! *env* sales)]
+          (fact
+           res =in=> [#:sales{:sum-quantity 300, :brand "ABC", :grouping-segment 1, :segment nil, :grouping-brand 0}
+                      #:sales{:sum-quantity 400, :brand "XYZ", :grouping-segment 1, :segment nil, :grouping-brand 0}
+                      #:sales{:sum-quantity 500, :brand nil, :grouping-segment 0, :segment "Basic", :grouping-brand 1}
+                      #:sales{:sum-quantity 200, :brand nil, :grouping-segment 0, :segment "Premium", :grouping-brand 1}
+                      #:sales{:sum-quantity 700, :brand nil, :grouping-segment 1, :segment nil, :grouping-brand 1}])))
+
+    #_(testing "Grouping function 2"
+        (let [sales (-> *env*
+                        :sales
+                        (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                        (r/extend :grouping-brand [:grouping :brand])
+                        (r/extend :grouping-segment [:grouping :segment])
+                        (r/select [:grouping-brand :grouping-segment :brand :segment :sum-quantity])
+                        (r/group-by [[:grouping-sets [:brand] [:segment] []]])
+                        (r/having [:= :grouping-brand 0])
+                        (r/order-by [:brand :segment]))
+              res (select! *env* sales)]
+          (fact
+           res =in=> [#:sales{:sum-quantity 300, :brand "ABC", :grouping-segment 1, :segment nil, :grouping-brand 0}
+                      #:sales{:sum-quantity 400, :brand "XYZ", :grouping-segment 1, :segment nil, :grouping-brand 0}]))))
+
+#_(deftest cube)
