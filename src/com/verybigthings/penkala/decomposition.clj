@@ -100,17 +100,27 @@
               (and is-composite-pk (->> pk (remove nil?) seq)))
       id)))
 
+(def set-conj (fnil conj #{}))
+
 (defn build [acc schema idx row]
   (let [id (get-row-id schema row)
-        {:keys [renames schemas]} schema
+        {:keys [renames schemas keep-duplicates?]} schema
         current (-> (get acc id {})
-                    (vary-meta update ::idx #(or % idx))
+                    (vary-meta update ::idx #(if keep-duplicates? (set-conj % idx) (or % #{idx})))
                     (assoc-columns renames row)
                     (assoc-descendants schemas idx row))]
     (cond
       id (assoc acc id current)
       (:keep-nil? schema) (assoc acc [idx row] current)
       :else acc)))
+
+(defn expand-transformed-coll [coll]
+  (let [indexed-coll (for [item coll
+                           idx (-> item meta ::idx)]
+                       [idx item])]
+    (->> indexed-coll
+         (sort-by first)
+         (mapv second))))
 
 (defn transform [schema mapping]
   (let [decompose-to (get schema :decompose-to :coll)
@@ -143,9 +153,7 @@
                       (if (= :coll decompose-to) [] {})
                       mapping)]
     (if (= :coll decompose-to)
-      (->> transformed
-           (sort-by #(-> % meta ::idx))
-           vec)
+      (expand-transformed-coll transformed)
       transformed)))
 
 (defn decompose
@@ -225,6 +233,7 @@
            decompose-to        (get overrides :decompose-to :coll)
            processor           (get overrides :processor identity)
            keep-nil?           (get overrides :keep-nil? false)
+           keep-duplicates?    (get overrides :keep-duplicates? false)
            columns             (reduce
                                 (fn [acc col-name]
                                   (assoc acc col-name (get-prefixed-col-name path-prefix col-name)))
@@ -269,4 +278,5 @@
          :namespace namespace
          :schema columns-with-joined
          :processor processor
-         :keep-nil? keep-nil?})))))
+         :keep-nil? keep-nil?
+         :keep-duplicates? keep-duplicates?})))))

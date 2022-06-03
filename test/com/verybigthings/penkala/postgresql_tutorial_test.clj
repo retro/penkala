@@ -2168,3 +2168,92 @@
                            {:paid-date date?, :sum-amount 671.43M}
                            {:paid-date date?, :sum-amount 224.51M}
                            {:paid-date date?, :sum-amount 2742.54M}]))))
+
+(deftest union'
+  (testing "Simple PostgreSQL UNION example"
+    (let [{:keys [top-rated-films most-popular-films]} *env*
+          rel (-> top-rated-films
+                  (r/union most-popular-films))
+          res (select! *env* rel)]
+      (fact
+       res =in=> [#:top-rated-films-most-popular-films{:title "12 Angry Men", :release-year 1957}
+                  #:top-rated-films-most-popular-films{:title "Greyhound", :release-year 2020}
+                  #:top-rated-films-most-popular-films{:title "The Godfather", :release-year 1972}
+                  #:top-rated-films-most-popular-films{:title "An American Pickle", :release-year 2020}
+                  #:top-rated-films-most-popular-films{:title "The Shawshank Redemption", :release-year 1994}])))
+
+  (testing "PostgreSQL UNION ALL example"
+    (let [{:keys [top-rated-films most-popular-films]} *env*
+          rel (-> top-rated-films
+                  (r/union-all most-popular-films))
+          res (select! *env* rel nil {:keep-duplicates? true})]
+      (fact
+       res =in=> [#:top-rated-films-most-popular-films{:title "The Shawshank Redemption", :release-year 1994}
+                  #:top-rated-films-most-popular-films{:title "The Godfather", :release-year 1972}
+                  #:top-rated-films-most-popular-films{:title "12 Angry Men", :release-year 1957}
+                  #:top-rated-films-most-popular-films{:title "An American Pickle", :release-year 2020}
+                  #:top-rated-films-most-popular-films{:title "The Godfather", :release-year 1972}
+                  #:top-rated-films-most-popular-films{:title "Greyhound", :release-year 2020}])))
+
+  (testing "PostgreSQL UNION ALL with ORDER BY clause example"
+    (let [{:keys [top-rated-films most-popular-films]} *env*
+          rel (-> top-rated-films
+                  (r/union-all most-popular-films)
+                  (r/order-by [:title]))
+          res (select! *env* rel nil {:keep-duplicates? true})]
+      (fact
+       res =in=> [#:top-rated-films-most-popular-films{:title "12 Angry Men", :release-year 1957}
+                  #:top-rated-films-most-popular-films{:title "An American Pickle", :release-year 2020}
+                  #:top-rated-films-most-popular-films{:title "Greyhound", :release-year 2020}
+                  #:top-rated-films-most-popular-films{:title "The Godfather", :release-year 1972}
+                  #:top-rated-films-most-popular-films{:title "The Godfather", :release-year 1972}
+                  #:top-rated-films-most-popular-films{:title "The Shawshank Redemption", :release-year 1994}]))))
+
+(deftest intersect'
+  (testing "PostgreSQL INTERSECT operator examples"
+    (let [{:keys [top-rated-films most-popular-films]} *env*
+          rel (-> top-rated-films
+                  (r/intersect most-popular-films))
+          res (select! *env* rel)]
+      (fact
+       res =in=> [#:top-rated-films-most-popular-films{:title "The Godfather", :release-year 1972}]))))
+
+(deftest except'
+  (testing "PostgreSQL EXCEPT operator example"
+    (let [{:keys [top-rated-films most-popular-films]} *env*
+          rel (-> top-rated-films
+                  (r/except most-popular-films))
+          res (select! *env* rel)]
+      (fact
+       res =in=> [#:top-rated-films-most-popular-films{:title "12 Angry Men", :release-year 1957}
+                  #:top-rated-films-most-popular-films{:title "The Shawshank Redemption", :release-year 1994}])))
+  (testing "PostgreSQL EXCEPT with ORDER BY clause example"
+    (let [{:keys [top-rated-films most-popular-films]} *env*
+          rel (-> top-rated-films
+                  (r/except most-popular-films)
+                  (r/order-by [[:title :desc]]))
+          res (select! *env* rel)]
+      (fact
+       res =in=> [#:top-rated-films-most-popular-films{:title "The Shawshank Redemption", :release-year 1994}
+                  #:top-rated-films-most-popular-films{:title "12 Angry Men", :release-year 1957}]))))
+
+(deftest having
+  (testing "Using PostgreSQL HAVING clause with SUM function example"
+    (let [payments (-> *env*
+                       :payment
+                       (r/extend-with-aggregate :sum-amount [:sum :amount])
+                       (r/select [:customer-id :sum-amount])
+                       (r/having [:> :sum-amount 200]))
+          res (select! *env* payments)]
+      (fact
+       res =in=> [#:payment{:customer-id 526, :sum-amount 221.55M}
+                  #:payment{:customer-id 148, :sum-amount 216.54M}])))
+  (testing "PostgreSQL HAVING clause with COUNT example"
+    (let [stores (-> *env*
+                     :customer
+                     (r/extend-with-aggregate :customer-id-count [:count :customer-id])
+                     (r/select [:store-id :customer-id-count])
+                     (r/having [:> :customer-id-count 300]))
+          res (select! *env* stores)]
+      (fact
+       res =in=> [#:customer{:store-id 1, :customer-id-count 326}]))))
