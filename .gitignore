@@ -10,3 +10,4 @@
 .hgignore
 .hg/
 .lsp
+.clj-kondo/.cache

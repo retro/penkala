@@ -17,10 +17,11 @@
 (defprotocol IRelation
   (-lock [this lock-type locked-rows])
   (-join [this join-type join-rel join-alias join-on join-projection])
+  (-group-by [this group-by-clause])
   (-having [this having-expression])
   (-or-having [this having-expression])
   (-offset [this offset])
-  (-limit [this limit])
+  (-fetch [this fetch])
   (-order-by [this orders])
   (-extend [this col-name extend-expression])
   (-extend-with-aggregate [this col-name agg-expression])
@@ -79,6 +80,11 @@
              "||/" "!" "!!" "@" "&" "|" "<<=" "=>>" "-|-"}
    :ternary #{:between :not-between
               :between-symmetric :not-between-symmetric}})
+
+(def extract-fields
+  #{:century :day :decade :dow :doy :epoch :hour :isodow :isoyear
+    :microseconds :millennium :milliseconds :minute :month :quarter
+    :second :timezone :timezone-hour :timezone-minute :week :year})
 
 (def all-operations
   (set/union (:unary operations) (:binary operations) (:ternary operations)))
@@ -164,12 +170,19 @@
     :value ::value-expression
     :cast-type string?)))
 
+(s/def ::using
+  (s/and
+   vector?
+   (s/cat
+    :op #(= :using %)
+    :arg1 simple-keyword?)))
+
 (s/def ::function-call
   (s/and
    vector?
    (s/cat
     :fn #(and (keyword? %) (not (contains? all-operations %)))
-    :args (s/+ ::value-expression))))
+    :args (s/* ::value-expression))))
 
 (s/def ::parent-scope
   (s/and
@@ -280,6 +293,13 @@
           :agg-vex ::value-expression
           :filter-vex ::value-expression)))
 
+(s/def ::extract
+  (s/and vector?
+         (s/cat
+          :extract #(= :extract %)
+          :field #(contains? extract-fields %)
+          :value-expression ::value-expression)))
+
 (s/def ::updates
   (s/map-of keyword? ::value-expression))
 
@@ -291,6 +311,7 @@
 
 (s/def ::value-expression
   (s/or
+   :nil nil?
    :boolean boolean?
    :keyword keyword?
    :relation ::relation
@@ -307,6 +328,8 @@
    :cast ::cast
    :case ::case
    :filter ::filter
+   :using ::using
+   :extract ::extract
    :function-call ::function-call
    :wrapped-literal ::wrapped-literal
    :wrapped-column ::wrapped-column
@@ -316,6 +339,31 @@
 
 (s/def ::column-list
   (s/coll-of ::column-identifier))
+
+(s/def ::grouping-sets
+  (s/and vector?
+         (s/cat
+          :grouping-sets #(= :grouping-sets %)
+          :column-lists (s/+ ::column-list))))
+
+(s/def ::rollup
+  (s/and vector?
+         (s/cat
+          :rollup #(= :rollup %)
+          :column-list (s/+ ::column-identifier))))
+
+(s/def ::cube
+  (s/and vector?
+         (s/cat
+          :cube #(= :cube %)
+          :column-list (s/+ ::column-identifier))))
+
+(s/def ::group-by
+  (s/coll-of (s/or
+              :grouping-sets ::grouping-sets
+              :cube ::cube
+              :rollup ::rollup
+              :column-identifier ::column-identifier)))
 
 (defn resolve-column [rel node]
   (let [column           (if (keyword? node) node (:subject node))
@@ -334,7 +382,7 @@
         (when id
           {:id id :name column-name :original column :db-name db-name})))))
 
-(defn extract-operator [[op-type operator]]
+(defn normalize-operator [[op-type operator]]
   (let [extracted-operator (if (= :operator op-type) operator (:subject operator))]
     (if (= :!= extracted-operator)
       :<>
@@ -343,6 +391,7 @@
 (defn process-value-expression [rel node]
   (let [[node-type args] node]
     (case node-type
+      :nil nil
       :wrapped-column
       (let [column (resolve-column rel args)]
         (when (nil? column)
@@ -384,6 +433,9 @@
                                         whens)))
           (update-in [1 :else] #(when % (process-value-expression rel %))))
 
+      :using
+      (update-in node [1 :arg1] #(resolve-column rel %))
+
       :filter
       (-> node
           (update-in [1 :agg-vex] #(process-value-expression rel %))
@@ -391,18 +443,18 @@
 
       :unary-operation
       (-> node
-          (update-in [1 :op] extract-operator)
+          (update-in [1 :op] normalize-operator)
           (update-in [1 :arg1] #(process-value-expression rel %)))
 
       :binary-operation
       (-> node
-          (update-in [1 :op] extract-operator)
+          (update-in [1 :op] normalize-operator)
           (update-in [1 :arg1] #(process-value-expression rel %))
           (update-in [1 :arg2] #(process-value-expression rel %)))
 
       :ternary-operation
       (-> node
-          (update-in [1 :op] extract-operator)
+          (update-in [1 :op] normalize-operator)
           (update-in [1 :arg1] #(process-value-expression rel %))
           (update-in [1 :arg2] #(process-value-expression rel %))
           (update-in [1 :arg3] #(process-value-expression rel %)))
@@ -421,6 +473,10 @@
         (-> node
             (update-in [1 :column] #(process-value-expression rel %))
             (assoc-in [1 :in] in')))
+
+      :extract
+      (update-in node [1 :value-expression] #(process-value-expression rel %))
+
       node)))
 
 (defn process-projection [rel node-list]
@@ -453,6 +509,27 @@
        (conj acc [:resolved-column column])))
    []
    columns))
+
+(defn process-group-by [rel group-by-clause]
+  (map
+   (fn [[node-type node]]
+     (case node-type
+       :column-identifier
+       (process-value-expression rel node)
+       :grouping-sets
+       (let [{:keys [column-lists]} node
+             grouping-sets (mapv
+                            (fn [column-list]
+                              (mapv #(process-value-expression rel %) column-list))
+                            column-lists)]
+         [:grouping-sets grouping-sets])
+       :cube
+       (let [{:keys [column-list]} node]
+         [:cube (mapv #(process-value-expression rel %) column-list)])
+       :rollup
+       (let [{:keys [column-list]} node]
+         [:rollup (mapv #(process-value-expression rel %) column-list)])))
+   group-by-clause))
 
 (defn and-predicate [rel predicate-type predicate-expression]
   (s/assert ::value-expression predicate-expression)
@@ -489,7 +566,6 @@
    (sel/format-query-without-params-resolution env rel))
   ([rel env params]
    (sel/format-query env rel params)))
-
 
 (defn get-insert-query [insertable env]
   (ins/format-query env insertable))
@@ -639,7 +715,7 @@
     (reduce
      (fn [acc col]
        (if (keyword? col)
-         (let [col-ns (namespace col)
+         (let [col-ns (-> col namespace str)
                col-nss (str/split col-ns #"\.")]
            (when (not= join-alias-name (first col-nss))
              (throw (ex-info "Columns in join projection must be aliased with the join alias" {:join-alias join-alias :column col})))
@@ -649,6 +725,15 @@
          (conj acc col)))
      []
      join-projection)))
+
+(defn process-join-on [join-alias with-join join-on]
+  (let [conformed (process-value-expression with-join (s/conform ::value-expression join-on))]
+    ;; USING is getting rewritten here so we don't have to handle it down the line
+    (if (= :using (first conformed))
+      (let [col-name (get-in conformed [1 :arg1 :original])
+            expanded-value-expression [:= col-name (keyword (name join-alias) (name col-name))]]
+        (process-value-expression with-join (s/conform ::value-expression expanded-value-expression)))
+      conformed)))
 
 (defrecord Relation [spec]
   IRelation
@@ -664,9 +749,11 @@
                                                                          (s/conform ::column-list))))
           with-join (assoc-in this [:joins join-alias] {:relation join-rel'
                                                         :type join-type
-                                                        :projection processed-join-projection})
-          join-on'  (process-value-expression with-join (s/conform ::value-expression join-on))]
-      (assoc-in with-join [:joins join-alias :on] join-on')))
+                                                        :projection processed-join-projection})]
+      (assoc-in with-join [:joins join-alias :on] (process-join-on join-alias with-join join-on))))
+  (-group-by [this group-by-clause]
+    (let [processed-group-by-clause (process-group-by this (s/conform ::group-by group-by-clause))]
+      (assoc this :group-by processed-group-by-clause)))
   (-having [this having-expression]
     (and-predicate this :having having-expression))
   (-or-having [this having-expression]
@@ -684,6 +771,7 @@
   (-extend [this col-name extend-expression]
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
+
     (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-expression))
           id               (keyword (gensym "column-"))]
       (-> this
@@ -733,8 +821,8 @@
       (assoc this :order-by processed-orders)))
   (-offset [this offset]
     (assoc this :offset offset))
-  (-limit [this limit]
-    (assoc this :limit limit))
+  (-fetch [this fetch]
+    (assoc this :fetch fetch))
   (-union [this other-rel]
     (spec->relation (make-combined-relations-spec "UNION" this other-rel)))
   (-union-all [this other-rel]
@@ -804,6 +892,103 @@
          :join-projection (s/? ::column-list))
   :ret ::relation)
 
+(defn left-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :left join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :left join-rel join-alias join-on join-projection)))
+
+(s/fdef left-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn left-lateral-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :left-lateral join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :left-lateral join-rel join-alias join-on join-projection)))
+
+(s/fdef left-lateral-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn right-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :right join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :right join-rel join-alias join-on join-projection)))
+
+(s/fdef right-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn inner-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :inner join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :inner join-rel join-alias join-on join-projection)))
+
+(s/fdef inner-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn inner-lateral-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :inner-lateral join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :inner-lateral join-rel join-alias join-on join-projection)))
+
+(s/fdef inner-lateral-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn full-join
+  ([rel join-rel join-alias join-on]
+   (-join rel :full join-rel join-alias join-on nil))
+  ([rel join-rel join-alias join-on join-projection]
+   (-join rel :full join-rel join-alias join-on join-projection)))
+
+(s/fdef full-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-on ::value-expression
+         :join-projection (s/? ::column-list)))
+
+(defn cross-join
+  ([rel join-rel join-alias]
+   (-join rel :cross join-rel join-alias nil nil))
+  ([rel join-rel join-alias join-projection]
+   (-join rel :cross join-rel join-alias nil join-projection)))
+
+(s/fdef cross-join
+  :args (s/cat
+         :rel ::relation
+         :join-rel ::relation
+         :join-alias keyword?
+         :join-projection (s/? ::column-list)))
+
 (defn where
   "And where operation. If there's already a where clause set, this clause will be joined with AND. Accepts a value
    expression which can be nested as needed. You can reference a column in a joined relation by using namespaced keys:
@@ -857,6 +1042,18 @@
          :having-expression ::value-expression)
   :ret ::relation)
 
+(defn group-by
+  "Explicit GROUP BY. Penkala can infer a default GROUP BY expression, so this is not needed in most cases, but you can use it if you want to override the default behavior.
+   Use this function if you want to GROUP BY GROUPING SETS, ROLLUP or CUBE"
+  [rel group-by-clause]
+  (-group-by rel group-by-clause))
+
+(s/fdef group-by
+  :args (s/cat
+         :rel ::relation
+         :group-by-clause ::group-by)
+  :ret ::relation)
+
 (defn offset
   "Sets the offset parameter"
   [rel offset]
@@ -869,14 +1066,25 @@
   :ret ::relation)
 
 (defn limit
-  "Sets the limit parameter."
+  "Sets the fetch parameter. Equivalent to `fetch`, provided as a convenience"
   [rel limit]
-  (-limit rel limit))
+  (-fetch rel limit))
 
 (s/fdef limit
   :args (s/cat
          :rel ::relation
          :limit int?)
+  :ret ::relation)
+
+(defn fetch
+  "Sets the fetch parameter."
+  [rel fetch]
+  (-fetch rel fetch))
+
+(s/fdef fetch
+  :args (s/cat
+         :rel ::relation
+         :fetch int?)
   :ret ::relation)
 
 (defn order-by
@@ -1017,9 +1225,9 @@
 (s/fdef distinct
   :args (s/cat
          :rel ::relation
-         :distinct-expression (s/or
-                               :boolean boolean?
-                               :distinct-expression ::column-list))
+         :distinct-expression (s/? (s/or
+                                    :boolean boolean?
+                                    :distinct-expression ::column-list)))
   :ret ::relation)
 
 (defn only
@@ -1095,7 +1303,8 @@
   (-with-parent rel parent))
 
 (s/fdef with-parent
-  :args (s/cat :rel ::relation)
+  :args (s/cat :rel ::relation
+               :parent ::relation)
   :ret ::relation)
 
 (defn with-default-columns [rel]

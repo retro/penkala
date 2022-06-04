@@ -90,21 +90,37 @@
    acc
    schemas))
 
-(defn build [acc schema idx row]
-  (let [pk              (:pk schema)
+(defn get-row-id [schema row]
+  (let [pk (:pk schema)
         is-composite-pk (< 1 (count pk))
-        id              (if is-composite-pk
-                          (mapv #(get row %) pk)
-                          (get row (first pk)))
-        {:keys [renames schemas]} schema]
-    (if (or (and is-composite-pk (every? nil? id))
-            (and (not is-composite-pk) (nil? id)))
-      acc
-      (let [current (-> (get acc id {})
-                        (vary-meta update ::idx #(or % idx))
-                        (assoc-columns renames row)
-                        (assoc-descendants schemas idx row))]
-        (assoc acc id current)))))
+        id (if is-composite-pk
+             (mapv #(get row %) pk)
+             (get row (first pk)))]
+    (when (or (not is-composite-pk)
+              (and is-composite-pk (->> pk (remove nil?) seq)))
+      id)))
+
+(def set-conj (fnil conj #{}))
+
+(defn build [acc schema idx row]
+  (let [id (get-row-id schema row)
+        {:keys [renames schemas keep-duplicates?]} schema
+        current (-> (get acc id {})
+                    (vary-meta update ::idx #(if keep-duplicates? (set-conj % idx) (or % #{idx})))
+                    (assoc-columns renames row)
+                    (assoc-descendants schemas idx row))]
+    (cond
+      id (assoc acc id current)
+      (:keep-nil? schema) (assoc acc [idx row] current)
+      :else acc)))
+
+(defn expand-transformed-coll [coll]
+  (let [indexed-coll (for [item coll
+                           idx (-> item meta ::idx)]
+                       [idx item])]
+    (->> indexed-coll
+         (sort-by first)
+         (mapv second))))
 
 (defn transform [schema mapping]
   (let [decompose-to (get schema :decompose-to :coll)
@@ -137,9 +153,7 @@
                       (if (= :coll decompose-to) [] {})
                       mapping)]
     (if (= :coll decompose-to)
-      (->> transformed
-           (sort-by #(-> % meta ::idx))
-           vec)
+      (expand-transformed-coll transformed)
       transformed)))
 
 (defn decompose
@@ -155,7 +169,9 @@
       (transform schema' mapping))))
 
 (s/fdef decompose
-  :args (s/cat ::schema (s/or :map map? :coll sequential?))
+  :args (s/cat
+         :schema any?
+         :data (s/or :map map? :coll sequential?))
   :ret (s/or :map? map? :coll sequential?))
 
 (defn get-prefixed-col-name [path-prefix col-name]
@@ -218,6 +234,8 @@
                                  default-namespace)
            decompose-to        (get overrides :decompose-to :coll)
            processor           (get overrides :processor identity)
+           keep-nil?           (get overrides :keep-nil? false)
+           keep-duplicates?    (get overrides :keep-duplicates? false)
            columns             (reduce
                                 (fn [acc col-name]
                                   (assoc acc col-name (get-prefixed-col-name path-prefix col-name)))
@@ -261,4 +279,6 @@
          :decompose-to decompose-to
          :namespace namespace
          :schema columns-with-joined
-         :processor processor})))))
+         :processor processor
+         :keep-nil? keep-nil?
+         :keep-duplicates? keep-duplicates?})))))
