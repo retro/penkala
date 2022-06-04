@@ -277,6 +277,39 @@
         (update :params into params)
         (update :query conj (str "(" query ")")))))
 
+(defmethod compile-value-expression :grouping-sets [acc env rel [_ grouping-sets]]
+  (let [{:keys [query params]}
+        (reduce
+         (fn [acc grouping-set]
+           (if (seq grouping-set)
+             (let [{:keys [query params]}
+                   (reduce
+                    (fn [acc' vex]
+                      (compile-value-expression acc' env rel vex))
+                    empty-acc
+                    grouping-set)]
+               (-> acc
+                   (update :params into params)
+                   (update :query conj (str "(" (str/join ", " query) ")"))))
+             (update acc :query conj "()")))
+         empty-acc
+         grouping-sets)]
+    (-> acc
+        (update :params into params)
+        (update :query conj (str "GROUPING SETS (" (str/join ", " query) ")")))))
+
+(defmethod compile-value-expression :cube [acc env rel [_ column-list]]
+  (let [{:keys [query params]} (reduce #(compile-value-expression %1 env rel %2) empty-acc column-list)]
+    (-> acc
+        (update :params into params)
+        (update :query conj (str "CUBE (" (str/join ", " query) ")")))))
+
+(defmethod compile-value-expression :rollup [acc env rel [_ column-list]]
+  (let [{:keys [query params]} (reduce #(compile-value-expression %1 env rel %2) empty-acc column-list)]
+    (-> acc
+        (update :params into params)
+        (update :query conj (str "ROLLUP (" (str/join ", " query) ")")))))
+
 (defn compile-order-by [acc env rel order-by]
   (let [{:keys [query params]}
         (reduce
@@ -461,6 +494,9 @@
     ;; This checks if we should add implicit group by clause. This should happen in two cases:
     ;; 1. Relation has both aggregate and non-aggregate columns
     ;; 2. Relation has aggregate column and it has at least one joined relation that has a projection
+    ;;
+    ;; We don't have to recursively check because joins will be wrapped in a subselect, so joins of joins
+    ;; are invisible from this perspective
     (cond
       (and aggregate non-aggregate)
       true
@@ -538,33 +574,6 @@
       (seq query) (update :query conj (str "GROUP BY " (str/join ", " query)))
       (seq params) (update :params into params))))
 
-#_(defn with-grouping-sets [acc env rel]
-    (let [grouping-sets (get-in rel [:group-by :grouping-sets])
-          {:keys [query params]}
-          (reduce
-           (fn [acc grouping-set]
-             (if (seq grouping-sets)
-               (let [{:keys [query params]}
-                     (reduce
-                      (fn [acc' vex]
-                        (compile-value-expression acc' env rel vex))
-                      empty-acc
-                      grouping-set)]
-                 (-> acc
-                     (update :params into params)
-                     (update :query conj (str "(" (str/join ", " query) ")"))))
-               (update acc :query conj "()")))
-           empty-acc
-           grouping-sets)]
-      (-> acc
-          (update :params into params)
-          (update :query conj (str "GROUP BY GROUPING SETS (" (str/join ", " query) ")")))))
-
-
-(defn with-group-by-and-having [acc env rel]
-  (-> acc
-      (with-group-by env rel)
-      (with-having env rel)))
 
 (defn with-order-by [acc env rel]
   (let [order-by (:order-by rel)]
@@ -595,7 +604,8 @@
                                    (with-from env rel)
                                    (with-joins env rel)
                                    (with-where env rel)
-                                   (with-group-by-and-having env rel)
+                                   (with-group-by env rel)
+                                   (with-having env rel)
                                    (with-order-by env rel)
                                    (with-lock env rel)
                                    (with-offset env rel)

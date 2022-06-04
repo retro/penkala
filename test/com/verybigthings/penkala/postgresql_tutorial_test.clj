@@ -2260,55 +2260,141 @@
       (fact
        res =in=> [#:customer{:store-id 1, :customer-id-count 326}]))))
 
-#_(deftest grouping-sets
-    (testing "Introduction to PostgreSQL GROUPING SETS"
-      (let [sales (-> *env*
-                      :sales
-                      (r/extend-with-aggregate :sum-quantity [:sum :quantity])
-                      (r/select [:brand :segment :sum-quantity])
-                      (r/group-by [[:grouping-sets [:brand :segment] [:brand] [:segment] []]]))
-            res (select! *env* sales)]
-        (fact
-         res =in=> [#:sales{:sum-quantity 700, :brand nil, :segment nil}
-                    #:sales{:sum-quantity 300, :brand "XYZ", :segment "Basic"}
-                    #:sales{:sum-quantity 100, :brand "ABC", :segment "Premium"}
-                    #:sales{:sum-quantity 200, :brand "ABC", :segment "Basic"}
-                    #:sales{:sum-quantity 100, :brand "XYZ", :segment "Premium"}
-                    #:sales{:sum-quantity 300, :brand "ABC", :segment nil}
-                    #:sales{:sum-quantity 400, :brand "XYZ", :segment nil}
-                    #:sales{:sum-quantity 500, :brand nil, :segment "Basic"}
-                    #:sales{:sum-quantity 200, :brand nil, :segment "Premium"}])))
+(deftest grouping-sets
+  (testing "Introduction to PostgreSQL GROUPING SETS"
+    (let [sales (-> *env*
+                    :sales
+                    (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                    (r/select [:brand :segment :sum-quantity])
+                    (r/group-by [[:grouping-sets [:brand :segment] [:brand] [:segment] []]]))
+          res (select! *env* sales)]
+      (fact
+       res =in=> [#:sales{:sum-quantity 700, :brand nil, :segment nil}
+                  #:sales{:sum-quantity 300, :brand "XYZ", :segment "Basic"}
+                  #:sales{:sum-quantity 100, :brand "ABC", :segment "Premium"}
+                  #:sales{:sum-quantity 200, :brand "ABC", :segment "Basic"}
+                  #:sales{:sum-quantity 100, :brand "XYZ", :segment "Premium"}
+                  #:sales{:sum-quantity 300, :brand "ABC", :segment nil}
+                  #:sales{:sum-quantity 400, :brand "XYZ", :segment nil}
+                  #:sales{:sum-quantity 500, :brand nil, :segment "Basic"}
+                  #:sales{:sum-quantity 200, :brand nil, :segment "Premium"}])))
 
-    #_(testing "Grouping function 1"
-        (let [sales (-> *env*
-                        :sales
-                        (r/extend-with-aggregate :sum-quantity [:sum :quantity])
-                        (r/extend :grouping-brand [:grouping :brand])
-                        (r/extend :grouping-segment [:grouping :segment])
-                        (r/select [:grouping-brand :grouping-segment :brand :segment :sum-quantity])
-                        (r/group-by [[:grouping-sets [:brand] [:segment] []]])
-                        (r/order-by [:brand :segment]))
-              res (select! *env* sales)]
-          (fact
-           res =in=> [#:sales{:sum-quantity 300, :brand "ABC", :grouping-segment 1, :segment nil, :grouping-brand 0}
-                      #:sales{:sum-quantity 400, :brand "XYZ", :grouping-segment 1, :segment nil, :grouping-brand 0}
-                      #:sales{:sum-quantity 500, :brand nil, :grouping-segment 0, :segment "Basic", :grouping-brand 1}
-                      #:sales{:sum-quantity 200, :brand nil, :grouping-segment 0, :segment "Premium", :grouping-brand 1}
-                      #:sales{:sum-quantity 700, :brand nil, :grouping-segment 1, :segment nil, :grouping-brand 1}])))
+  (testing "Grouping function 1"
+    (let [sales (-> *env*
+                    :sales
+                    (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                    (r/extend :grouping-brand [:grouping :brand])
+                    (r/extend :grouping-segment [:grouping :segment])
+                    (r/select [:grouping-brand :grouping-segment :brand :segment :sum-quantity])
+                    (r/group-by [[:grouping-sets [:brand] [:segment] []]])
+                    (r/order-by [:brand :segment]))
+          res (select! *env* sales)]
+      (fact
+       res =in=> [#:sales{:sum-quantity 300, :brand "ABC", :grouping-segment 1, :segment nil, :grouping-brand 0}
+                  #:sales{:sum-quantity 400, :brand "XYZ", :grouping-segment 1, :segment nil, :grouping-brand 0}
+                  #:sales{:sum-quantity 500, :brand nil, :grouping-segment 0, :segment "Basic", :grouping-brand 1}
+                  #:sales{:sum-quantity 200, :brand nil, :grouping-segment 0, :segment "Premium", :grouping-brand 1}
+                  #:sales{:sum-quantity 700, :brand nil, :grouping-segment 1, :segment nil, :grouping-brand 1}])))
 
-    #_(testing "Grouping function 2"
-        (let [sales (-> *env*
-                        :sales
-                        (r/extend-with-aggregate :sum-quantity [:sum :quantity])
-                        (r/extend :grouping-brand [:grouping :brand])
-                        (r/extend :grouping-segment [:grouping :segment])
-                        (r/select [:grouping-brand :grouping-segment :brand :segment :sum-quantity])
-                        (r/group-by [[:grouping-sets [:brand] [:segment] []]])
-                        (r/having [:= :grouping-brand 0])
-                        (r/order-by [:brand :segment]))
-              res (select! *env* sales)]
-          (fact
-           res =in=> [#:sales{:sum-quantity 300, :brand "ABC", :grouping-segment 1, :segment nil, :grouping-brand 0}
-                      #:sales{:sum-quantity 400, :brand "XYZ", :grouping-segment 1, :segment nil, :grouping-brand 0}]))))
+  (testing "Grouping function 2"
+    (let [sales (-> *env*
+                    :sales
+                    (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                    (r/extend :grouping-brand [:grouping :brand])
+                    (r/extend :grouping-segment [:grouping :segment])
+                    (r/select [:grouping-brand :grouping-segment :brand :segment :sum-quantity])
+                    (r/group-by [[:grouping-sets [:brand] [:segment] []]])
+                    (r/having [:= :grouping-brand 0])
+                    (r/order-by [:brand :segment]))
+          res (select! *env* sales)]
+      (fact
+       res =in=> [#:sales{:sum-quantity 300, :brand "ABC", :grouping-segment 1, :segment nil, :grouping-brand 0}
+                  #:sales{:sum-quantity 400, :brand "XYZ", :grouping-segment 1, :segment nil, :grouping-brand 0}]))))
 
-#_(deftest cube)
+(deftest cube
+  (testing "CUBE"
+    (let [sales (-> *env*
+                    :sales
+                    (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                    (r/select [:brand :segment :sum-quantity])
+                    (r/group-by [[:cube :brand :segment]])
+                    (r/order-by [:brand :segment]))
+          res (select! *env* sales)]
+      (fact
+       res =in=> [#:sales{:sum-quantity 200, :brand "ABC", :segment "Basic"}
+                  #:sales{:sum-quantity 100, :brand "ABC", :segment "Premium"}
+                  #:sales{:sum-quantity 300, :brand "ABC", :segment nil}
+                  #:sales{:sum-quantity 300, :brand "XYZ", :segment "Basic"}
+                  #:sales{:sum-quantity 100, :brand "XYZ", :segment "Premium"}
+                  #:sales{:sum-quantity 400, :brand "XYZ", :segment nil}
+                  #:sales{:sum-quantity 500, :brand nil, :segment "Basic"}
+                  #:sales{:sum-quantity 200, :brand nil, :segment "Premium"}
+                  #:sales{:sum-quantity 700, :brand nil, :segment nil}])))
+
+  (testing "Partial CUBE"
+    (let [sales (-> *env*
+                    :sales
+                    (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                    (r/select [:brand :segment :sum-quantity])
+                    (r/group-by [:brand [:cube :segment]])
+                    (r/order-by [:brand :segment]))
+          res (select! *env* sales)]
+      (fact
+       res =in=> [#:sales{:sum-quantity 200, :brand "ABC", :segment "Basic"}
+                  #:sales{:sum-quantity 100, :brand "ABC", :segment "Premium"}
+                  #:sales{:sum-quantity 300, :brand "ABC", :segment nil}
+                  #:sales{:sum-quantity 300, :brand "XYZ", :segment "Basic"}
+                  #:sales{:sum-quantity 100, :brand "XYZ", :segment "Premium"}
+                  #:sales{:sum-quantity 400, :brand "XYZ", :segment nil}]))))
+
+
+(deftest rollup
+  (testing "ROLLUP #1"
+    (let [sales (-> *env*
+                    :sales
+                    (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                    (r/select [:brand :segment :sum-quantity])
+                    (r/group-by [[:rollup :brand :segment]])
+                    (r/order-by [:brand :segment]))
+          res (select! *env* sales)]
+      (fact
+       res =in=> [#:sales{:sum-quantity 200, :brand "ABC", :segment "Basic"}
+                  #:sales{:sum-quantity 100, :brand "ABC", :segment "Premium"}
+                  #:sales{:sum-quantity 300, :brand "ABC", :segment nil}
+                  #:sales{:sum-quantity 300, :brand "XYZ", :segment "Basic"}
+                  #:sales{:sum-quantity 100, :brand "XYZ", :segment "Premium"}
+                  #:sales{:sum-quantity 400, :brand "XYZ", :segment nil}
+                  #:sales{:sum-quantity 700, :brand nil, :segment nil}])))
+
+  (testing "ROLLUP #2"
+    (let [sales (-> *env*
+                    :sales
+                    (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                    (r/select [:brand :segment :sum-quantity])
+                    (r/group-by [[:rollup :segment :brand]])
+                    (r/order-by [:segment :brand]))
+          res (select! *env* sales)]
+      (fact
+       res =in=> [#:sales{:sum-quantity 200, :brand "ABC", :segment "Basic"}
+                  #:sales{:sum-quantity 300, :brand "XYZ", :segment "Basic"}
+                  #:sales{:sum-quantity 500, :brand nil, :segment "Basic"}
+                  #:sales{:sum-quantity 100, :brand "ABC", :segment "Premium"}
+                  #:sales{:sum-quantity 100, :brand "XYZ", :segment "Premium"}
+                  #:sales{:sum-quantity 200, :brand nil, :segment "Premium"}
+                  #:sales{:sum-quantity 700, :brand nil, :segment nil}])))
+
+  (testing "Partial ROLLUP"
+    (let [sales (-> *env*
+                    :sales
+                    (r/extend-with-aggregate :sum-quantity [:sum :quantity])
+                    (r/select [:brand :segment :sum-quantity])
+                    (r/group-by [:segment [:rollup :brand]])
+                    (r/order-by [:segment :brand]))
+          res (select! *env* sales)]
+      (fact
+       res =in=> [#:sales{:sum-quantity 200, :brand "ABC", :segment "Basic"}
+                  #:sales{:sum-quantity 300, :brand "XYZ", :segment "Basic"}
+                  #:sales{:sum-quantity 500, :brand nil, :segment "Basic"}
+                  #:sales{:sum-quantity 100, :brand "ABC", :segment "Premium"}
+                  #:sales{:sum-quantity 100, :brand "XYZ", :segment "Premium"}
+                  #:sales{:sum-quantity 200, :brand nil, :segment "Premium"}]))))

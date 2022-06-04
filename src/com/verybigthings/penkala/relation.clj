@@ -17,7 +17,7 @@
 (defprotocol IRelation
   (-lock [this lock-type locked-rows])
   (-join [this join-type join-rel join-alias join-on join-projection])
-  (-group-by [this group-by-column-list])
+  (-group-by [this group-by-clause])
   (-having [this having-expression])
   (-or-having [this having-expression])
   (-offset [this offset])
@@ -328,7 +328,29 @@
   (s/coll-of ::column-identifier))
 
 (s/def ::grouping-sets
-  (s/coll-of ::column-list))
+  (s/and vector?
+         (s/cat
+          :grouping-sets #(= :grouping-sets %)
+          :column-lists (s/+ ::column-list))))
+
+(s/def ::rollup
+  (s/and vector?
+         (s/cat
+          :rollup #(= :rollup %)
+          :column-list (s/+ ::column-identifier))))
+
+(s/def ::cube
+  (s/and vector?
+         (s/cat
+          :cube #(= :cube %)
+          :column-list (s/+ ::column-identifier))))
+
+(s/def ::group-by
+  (s/coll-of (s/or
+              :grouping-sets ::grouping-sets
+              :cube ::cube
+              :rollup ::rollup
+              :column-identifier ::column-identifier)))
 
 (defn resolve-column [rel node]
   (let [column           (if (keyword? node) node (:subject node))
@@ -470,6 +492,27 @@
        (conj acc [:resolved-column column])))
    []
    columns))
+
+(defn process-group-by [rel group-by-clause]
+  (map
+   (fn [[node-type node]]
+     (case node-type
+       :column-identifier
+       (process-value-expression rel node)
+       :grouping-sets
+       (let [{:keys [column-lists]} node
+             grouping-sets (mapv
+                            (fn [column-list]
+                              (mapv #(process-value-expression rel %) column-list))
+                            column-lists)]
+         [:grouping-sets grouping-sets])
+       :cube
+       (let [{:keys [column-list]} node]
+         [:cube (mapv #(process-value-expression rel %) column-list)])
+       :rollup
+       (let [{:keys [column-list]} node]
+         [:rollup (mapv #(process-value-expression rel %) column-list)])))
+   group-by-clause))
 
 (defn and-predicate [rel predicate-type predicate-expression]
   (s/assert ::value-expression predicate-expression)
@@ -691,9 +734,9 @@
                                                         :type join-type
                                                         :projection processed-join-projection})]
       (assoc-in with-join [:joins join-alias :on] (process-join-on join-alias with-join join-on))))
-  (-group-by [this group-by-column-list]
-    (let [processed-group-by-column-list (resolve-columns this (s/conform ::column-list group-by-column-list))]
-      (assoc this :group-by processed-group-by-column-list)))
+  (-group-by [this group-by-clause]
+    (let [processed-group-by-clause (process-group-by this (s/conform ::group-by group-by-clause))]
+      (assoc this :group-by processed-group-by-clause)))
   (-having [this having-expression]
     (and-predicate this :having having-expression))
   (-or-having [this having-expression]
@@ -984,13 +1027,13 @@
 (defn group-by
   "Explicit GROUP BY. Penkala can infer a default GROUP BY expression, so this is not needed in most cases, but you can use it if you want to override the default behavior.
    Use this function if you want to GROUP BY GROUPING SETS, ROLLUP or CUBE"
-  [rel group-by-column-list]
-  (-group-by rel group-by-column-list))
+  [rel group-by-clause]
+  (-group-by rel group-by-clause))
 
 (s/fdef group-by
   :args (s/cat
          :rel ::relation
-         :group-by-column-list ::column-list)
+         :group-by-clause ::column-list)
   :ret ::relation)
 
 (defn offset
