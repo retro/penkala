@@ -142,6 +142,7 @@
          relation'            (if (keyword? relation) (validate-relation env relation) relation)
          sqlvec               (r/get-select-query relation' env params)
          decomposition-schema (d/infer-schema relation' decomposition-schema-overrides)]
+     ;; (-> sqlvec first prettify-sql println)
      (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
           (d/decompose decomposition-schema)))))
 
