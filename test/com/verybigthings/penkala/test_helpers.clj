@@ -2,7 +2,8 @@
   (:require [next.jdbc :as jdbc]
             [clojure.java.io :as io]
             [next.jdbc.result-set :as rs]
-            [com.verybigthings.penkala.next-jdbc :refer [get-env]]))
+            [com.verybigthings.penkala.next-jdbc :refer [get-env]]
+            [clojure.spec.test.alpha :as st]))
 
 (def ^:dynamic *env* {})
 
@@ -23,3 +24,9 @@
 (defn pagila-db-fixture [f]
   (binding [*env* (get-env "jdbc:postgresql://localhost:5432/penkala_pagila?user=postgres")]
     (f)))
+
+(defn instrument-penkala [f]
+  (let [syms (-> 'com.verybigthings.penkala.relation st/enumerate-namespace st/instrumentable-syms)]
+    (st/instrument syms)
+    (f)
+    (st/unstrument syms)))

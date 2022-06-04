@@ -169,7 +169,9 @@
       (transform schema' mapping))))
 
 (s/fdef decompose
-  :args (s/cat ::schema (s/or :map map? :coll sequential?))
+  :args (s/cat
+         :schema any?
+         :data (s/or :map map? :coll sequential?))
   :ret (s/or :map? map? :coll sequential?))
 
 (defn get-prefixed-col-name [path-prefix col-name]

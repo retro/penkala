@@ -9,7 +9,7 @@
             [testit.core :refer [fact facts => =in=>]]))
 
 ;;(use-fixtures :each (partial th/reset-db-fixture "pagila"))
-(use-fixtures :once th/pagila-db-fixture)
+(use-fixtures :once th/pagila-db-fixture th/instrument-penkala)
 
 (defn date? [val]
   (= java.time.LocalDate (class val)))
@@ -1946,7 +1946,7 @@
        res =in=> [{:department-id nil, :employee-name "Julia Mcqueen", :employee-id 6, :departments/department-id nil, :departments/department-name nil}]))))
 
 (deftest cross-join
-  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-full-outer-join/
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-cross-join/
   (let [t-2 (:t-2 *env*)
         t-1 (-> *env*
                 :t-1
@@ -1963,7 +1963,7 @@
 ;; Penkala doesn't support NATURAL JOIN so these tests are skipped - https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-natural-join/
 
 (deftest group-by'
-  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-full-outer-join/
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-group-by/
   (testing "Using PostgreSQL GROUP BY without an aggregate function example"
     (let [payments (-> *env*
                        :payment
@@ -2170,6 +2170,7 @@
                            {:paid-date date?, :sum-amount 2742.54M}]))))
 
 (deftest union'
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-union/
   (testing "Simple PostgreSQL UNION example"
     (let [{:keys [top-rated-films most-popular-films]} *env*
           rel (-> top-rated-films
@@ -2212,6 +2213,7 @@
                   #:top-rated-films-most-popular-films{:title "The Shawshank Redemption", :release-year 1994}]))))
 
 (deftest intersect'
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-intersect/
   (testing "PostgreSQL INTERSECT operator examples"
     (let [{:keys [top-rated-films most-popular-films]} *env*
           rel (-> top-rated-films
@@ -2221,6 +2223,7 @@
        res =in=> [#:top-rated-films-most-popular-films{:title "The Godfather", :release-year 1972}]))))
 
 (deftest except'
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-except/
   (testing "PostgreSQL EXCEPT operator example"
     (let [{:keys [top-rated-films most-popular-films]} *env*
           rel (-> top-rated-films
@@ -2240,6 +2243,7 @@
                   #:top-rated-films-most-popular-films{:title "12 Angry Men", :release-year 1957}]))))
 
 (deftest having
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-having/
   (testing "Using PostgreSQL HAVING clause with SUM function example"
     (let [payments (-> *env*
                        :payment
@@ -2261,6 +2265,7 @@
        res =in=> [#:customer{:store-id 1, :customer-id-count 326}]))))
 
 (deftest grouping-sets
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-grouping-sets/
   (testing "Introduction to PostgreSQL GROUPING SETS"
     (let [sales (-> *env*
                     :sales
@@ -2312,6 +2317,7 @@
                   #:sales{:sum-quantity 400, :brand "XYZ", :grouping-segment 1, :segment nil, :grouping-brand 0}]))))
 
 (deftest cube
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-cube/
   (testing "CUBE"
     (let [sales (-> *env*
                     :sales
@@ -2349,6 +2355,7 @@
 
 
 (deftest rollup
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-rollup/
   (testing "ROLLUP #1"
     (let [sales (-> *env*
                     :sales
@@ -2397,4 +2404,290 @@
                   #:sales{:sum-quantity 500, :brand nil, :segment "Basic"}
                   #:sales{:sum-quantity 100, :brand "ABC", :segment "Premium"}
                   #:sales{:sum-quantity 100, :brand "XYZ", :segment "Premium"}
-                  #:sales{:sum-quantity 200, :brand nil, :segment "Premium"}]))))
+                  #:sales{:sum-quantity 200, :brand nil, :segment "Premium"}])))
+
+  (testing "Rental ROLLUP"
+    (let [rental (-> *env*
+                     :rental
+                     (r/extend :year [:extract :year :rental-date])
+                     (r/extend :month [:extract :month :rental-date])
+                     (r/extend :day [:extract :day :rental-date])
+                     (r/extend-with-aggregate :rental-count [:count :rental-id])
+                     (r/select [:year :month :day :rental-count])
+                     (r/group-by [[:rollup :year :month :day]])
+                     (r/order-by [:year :month :day]))
+          res (-> (select! *env* rental)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:rental{:day 24.0, :month 5.0, :rental-count 2, :year 2005.0}
+                  #:rental{:day 25.0, :month 5.0, :rental-count 136, :year 2005.0}
+                  #:rental{:day 26.0, :month 5.0, :rental-count 175, :year 2005.0}
+                  #:rental{:day 27.0, :month 5.0, :rental-count 168, :year 2005.0}
+                  #:rental{:day 28.0, :month 5.0, :rental-count 194, :year 2005.0}
+                  #:rental{:day 29.0, :month 5.0, :rental-count 156, :year 2005.0}
+                  #:rental{:day 30.0, :month 5.0, :rental-count 155, :year 2005.0}
+                  #:rental{:day 31.0, :month 5.0, :rental-count 170, :year 2005.0}
+                  #:rental{:day nil, :month 5.0, :rental-count 1156, :year 2005.0}
+                  #:rental{:day 14.0, :month 6.0, :rental-count 2, :year 2005.0}]))))
+
+(deftest subquery
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-subquery/
+  (testing "PostgreSQL subquery"
+    (let [{:keys [film]} *env*
+          avg-film-rental-rate (-> film
+                                   (r/extend :avg-film-rental-rate [:avg :rental-rate])
+                                   (r/select [:avg-film-rental-rate]))
+          films (-> film
+                    (r/select [:film-id :title :rental-rate])
+                    (r/where [:> :rental-rate avg-film-rental-rate])
+                    (r/order-by [:rental-rate])) ;; add order-by for consistent test results
+          res (-> (select! *env* films)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:film{:title "KRAMER CHOCOLATE", :film-id 503, :rental-rate 2.99M}
+                  #:film{:title "LABYRINTH LEAGUE", :film-id 505, :rental-rate 2.99M}
+                  #:film{:title "BED HIGHBALL", :film-id 62, :rental-rate 2.99M}
+                  #:film{:title "ALABAMA DEVIL", :film-id 9, :rental-rate 2.99M}
+                  #:film{:title "DREAM PICKUP", :film-id 252, :rental-rate 2.99M}
+                  #:film{:title "BERETS AGENT", :film-id 67, :rental-rate 2.99M}
+                  #:film{:title "LEATHERNECKS DWARFS", :film-id 513, :rental-rate 2.99M}
+                  #:film{:title "LEBOWSKI SOLDIERS", :film-id 514, :rental-rate 2.99M}
+                  #:film{:title "DRIVER ANNIE", :film-id 254, :rental-rate 2.99M}
+                  #:film{:title "CHANCE RESURRECTION", :film-id 135, :rental-rate 2.99M}])))
+
+  (testing "PostgreSQL subquery with IN operator"
+    (let [{:keys [film rental inventory]} *env*
+          returned-films (-> rental
+                             ;; Last argument is "join projection". It allows you to select subset of fields from the joined table
+                             (r/inner-join inventory :inventory [:= :inventory-id :inventory/inventory-id] [:inventory/film-id])
+                             (r/where [:between :return-date [:cast "2005-05-29" "timestamp"] [:cast "2005-05-30" "timestamp"]])
+                             ;; Since we want to use this query in an IN operation, we need to return a table with one column
+                             ;; which is :inventory/film-id. Therefore we don't select anything from the rental table
+                             (r/select []))
+          films (-> film
+                    (r/select [:film-id :title])
+                    (r/where [:in :film-id returned-films])
+                    (r/order-by [:title])) ;; add order-by for consistent test results
+          res (-> (select! *env* films)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:film{:title "ALIEN CENTER", :film-id 15}
+                  #:film{:title "AMADEUS HOLY", :film-id 19}
+                  #:film{:title "ATTRACTION NEWTON", :film-id 45}
+                  #:film{:title "BAKED CLEOPATRA", :film-id 50}
+                  #:film{:title "BALLROOM MOCKINGBIRD", :film-id 52}
+                  #:film{:title "BANGER PINOCCHIO", :film-id 54}
+                  #:film{:title "BETRAYED REAR", :film-id 68}
+                  #:film{:title "BINGO TALENTED", :film-id 73}
+                  #:film{:title "BLUES INSTINCT", :film-id 83}
+                  #:film{:title "BORROWERS BEDAZZLED", :film-id 89}])))
+
+  (testing "PostgreSQL subquery with IN operator"
+    (let [{:keys [film rental inventory]} *env*
+          returned-films (-> rental
+                             ;; Last argument is "join projection". It allows you to select subset of fields from the joined table
+                             (r/inner-join inventory :inventory [:= :inventory-id :inventory/inventory-id] [:inventory/film-id])
+                             (r/where [:between :return-date [:cast "2005-05-29" "timestamp"] [:cast "2005-05-30" "timestamp"]])
+                             ;; Since we want to use this query in an IN operation, we need to return a table with one column
+                             ;; which is :inventory/film-id. Therefore we don't select anything from the rental table
+                             (r/select []))
+          films (-> film
+                    (r/select [:film-id :title])
+                    (r/where [:in :film-id returned-films])
+                    (r/order-by [:title])) ;; add order-by for consistent test results
+          res (-> (select! *env* films)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:film{:title "ALIEN CENTER", :film-id 15}
+                  #:film{:title "AMADEUS HOLY", :film-id 19}
+                  #:film{:title "ATTRACTION NEWTON", :film-id 45}
+                  #:film{:title "BAKED CLEOPATRA", :film-id 50}
+                  #:film{:title "BALLROOM MOCKINGBIRD", :film-id 52}
+                  #:film{:title "BANGER PINOCCHIO", :film-id 54}
+                  #:film{:title "BETRAYED REAR", :film-id 68}
+                  #:film{:title "BINGO TALENTED", :film-id 73}
+                  #:film{:title "BLUES INSTINCT", :film-id 83}
+                  #:film{:title "BORROWERS BEDAZZLED", :film-id 89}])))
+
+  (testing "PostgreSQL subquery with EXISTS operator"
+    (let [{:keys [customer payment]} *env*
+          ;; This example requires a correlated subquery. We want to query 
+          ;; payments table for each row in customers table. You can express this
+          ;; in Penkala by using `r/with-parent` and `[:parent-scope ...]` which lets
+          ;; you to access the columns from the parent scope in the inner subquery
+          payments (-> payment
+                       (r/with-parent customer)
+                       (r/select [:payment-id])
+                       (r/where [:= :customer-id [:parent-scope :customer-id]]))
+          customers (-> customer
+                        (r/select [:first-name :last-name])
+                        (r/order-by [:last-name :first-name])
+                        (r/where [:exists payments]))
+          res (-> (select! *env* customers)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:customer{:last-name "ABNEY", :first-name "RAFAEL"}
+                  #:customer{:last-name "ADAM", :first-name "NATHANIEL"}
+                  #:customer{:last-name "ADAMS", :first-name "KATHLEEN"}
+                  #:customer{:last-name "ALEXANDER", :first-name "DIANA"}
+                  #:customer{:last-name "ALLARD", :first-name "GORDON"}
+                  #:customer{:last-name "ALLEN", :first-name "SHIRLEY"}
+                  #:customer{:last-name "ALVAREZ", :first-name "CHARLENE"}
+                  #:customer{:last-name "ANDERSON", :first-name "LISA"}
+                  #:customer{:last-name "ANDREW", :first-name "JOSE"}
+                  #:customer{:last-name "ANDREWS", :first-name "IDA"}]))))
+
+(deftest any
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-any/
+  (testing "ANY"
+    (let [{:keys [film film-category]} *env*
+          longest-film-by-category (-> film
+                                       (r/extend :longest-length [:max :length])
+                                       (r/inner-join film-category :film-category [:using :film-id] [])
+                                       (r/select [:longest-length])
+                                       (r/group-by [:film-category/category-id]))
+          films (-> film
+                    (r/select [:title])
+                    (r/where [:>= :length [:any longest-film-by-category]])
+                    (r/order-by [:title])) ;; Add order-by for consistent test results
+          res (-> (select! *env* films)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:film{:title "ALLEY EVOLUTION"}
+                  #:film{:title "ANALYZE HOOSIERS"}
+                  #:film{:title "ANONYMOUS HUMAN"}
+                  #:film{:title "BAKED CLEOPATRA"}
+                  #:film{:title "BORN SPINAL"}
+                  #:film{:title "CASUALTIES ENCINO"}
+                  #:film{:title "CATCH AMISTAD"}
+                  #:film{:title "CAUSE DATE"}
+                  #:film{:title "CHICAGO NORTH"}
+                  #:film{:title "CONFIDENTIAL INTERVIEW"}])))
+  (testing "ANY vs. IN"
+    (let [{:keys [film film-category category]} *env*
+          action-drama-category (-> category
+                                    (r/select [:category-id])
+                                    (r/where [:or [:= :name "Action"] [:= :name "Drama"]]))
+          films-any (-> film
+                        (r/select [:title])
+                        (r/inner-join film-category :film-category [:using :film-id] [:film-category/category-id])
+                        (r/where [:= :film-category/category-id [:any action-drama-category]])
+                        (r/order-by [:title])) ;; Add order-by for consistent test results
+          films-in (-> film
+                       (r/select [:title])
+                       (r/inner-join film-category :film-category [:using :film-id] [:film-category/category-id])
+                       (r/where [:in :film-category/category-id action-drama-category])
+                       (r/order-by [:title])) ;; Add order-by for consistent test results
+          res-films-any (-> (select! *env* films-any)
+                            (subvec 0 10))
+          res-films-in (-> (select! *env* films-in)
+                           (subvec 0 10))]
+      (facts
+       res-films-any => res-films-in
+       res-films-any => [#:film{:title "AMADEUS HOLY", :film-category [#:film-category{:category-id 1}]}
+                         #:film{:title "AMERICAN CIRCUS", :film-category [#:film-category{:category-id 1}]}
+                         #:film{:title "ANTITRUST TOMATOES", :film-category [#:film-category{:category-id 1}]}
+                         #:film{:title "APOLLO TEEN", :film-category [#:film-category{:category-id 7}]}
+                         #:film{:title "ARK RIDGEMONT", :film-category [#:film-category{:category-id 1}]}
+                         #:film{:title "BAREFOOT MANCHURIAN", :film-category [#:film-category{:category-id 1}]}
+                         #:film{:title "BEAUTY GREASE", :film-category [#:film-category{:category-id 7}]}
+                         #:film{:title "BEETHOVEN EXORCIST", :film-category [#:film-category{:category-id 7}]}
+                         #:film{:title "BERETS AGENT", :film-category [#:film-category{:category-id 1}]}
+                         #:film{:title "BLADE POLISH", :film-category [#:film-category{:category-id 7}]}]
+       res-films-in => [#:film{:title "AMADEUS HOLY", :film-category [#:film-category{:category-id 1}]}
+                        #:film{:title "AMERICAN CIRCUS", :film-category [#:film-category{:category-id 1}]}
+                        #:film{:title "ANTITRUST TOMATOES", :film-category [#:film-category{:category-id 1}]}
+                        #:film{:title "APOLLO TEEN", :film-category [#:film-category{:category-id 7}]}
+                        #:film{:title "ARK RIDGEMONT", :film-category [#:film-category{:category-id 1}]}
+                        #:film{:title "BAREFOOT MANCHURIAN", :film-category [#:film-category{:category-id 1}]}
+                        #:film{:title "BEAUTY GREASE", :film-category [#:film-category{:category-id 7}]}
+                        #:film{:title "BEETHOVEN EXORCIST", :film-category [#:film-category{:category-id 7}]}
+                        #:film{:title "BERETS AGENT", :film-category [#:film-category{:category-id 1}]}
+                        #:film{:title "BLADE POLISH", :film-category [#:film-category{:category-id 7}]}]))))
+
+(deftest all
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-all/
+  (testing "ALL"
+    (let [{:keys [film]} *env*
+          avg-length-by-rating (-> film
+                                   (r/extend-with-aggregate :avg-length [:round [:avg :length] [:cast 2 "int"]])
+                                   (r/select [:avg-length])
+                                   (r/group-by [:rating]))
+          films (-> film
+                    (r/select [:film-id :title :length])
+                    (r/where [:> :length [:all avg-length-by-rating]])
+                    (r/order-by [:length]))
+          res (-> (select! *env* films)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:film{:title "BRANNIGAN SUNRISE", :film-id 93, :length 121}
+                  #:film{:title "PARIS WEEKEND", :film-id 658, :length 121}
+                  #:film{:title "HARRY IDAHO", :film-id 403, :length 121}
+                  #:film{:title "ARIZONA BANG", :film-id 37, :length 121}
+                  #:film{:title "DANGEROUS UPTOWN", :film-id 207, :length 121}
+                  #:film{:title "JUMANJI BLADE", :film-id 490, :length 121}
+                  #:film{:title "PURE RUNNER", :film-id 704, :length 121}
+                  #:film{:title "BOOGIE AMELIE", :film-id 86, :length 121}
+                  #:film{:title "CHICKEN HELLFIGHTERS", :film-id 142, :length 122}
+                  #:film{:title "CONFUSED CANDLES", :film-id 175, :length 122}]))))
+
+(deftest exists
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-all/
+  (testing "Find customers who have at least one payment whose amount is greater than 11."
+    (let [{:keys [customer payment]} *env*
+          ;; This example requires a correlated subquery. We want to query 
+          ;; payments table for each row in customers table. You can express this
+          ;; in Penkala by using `r/with-parent` and `[:parent-scope ...]` which lets
+          ;; you to access the columns from the parent scope in the inner subquery
+          payments (-> payment
+                       (r/with-parent customer)
+                       (r/select [:payment-id])
+                       (r/where  [:and
+                                  [:= :customer-id [:parent-scope :customer-id]]
+                                  [:> :amount 11]]))
+          customers (-> customer
+                        (r/select [:first-name :last-name])
+                        (r/where [:exists payments])
+                        (r/order-by [:first-name :last-name]))
+          res (-> (select! *env* customers)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:customer{:last-name "AUSTIN", :first-name "ALMA"}
+                  #:customer{:last-name "JACKSON", :first-name "KAREN"}
+                  #:customer{:last-name "ARSENAULT", :first-name "KENT"}
+                  #:customer{:last-name "BARFIELD", :first-name "NICHOLAS"}
+                  #:customer{:last-name "MCCRARY", :first-name "RICHARD"}
+                  #:customer{:last-name "SCHMIDT", :first-name "ROSEMARY"}
+                  #:customer{:last-name "GILBERT", :first-name "TANYA"}
+                  #:customer{:last-name "ROUSH", :first-name "TERRANCE"}
+                  #:customer{:last-name "SIMS", :first-name "VANESSA"}
+                  #:customer{:last-name "GIBSON", :first-name "VICTORIA"}])))
+  (testing "NOT EXISTS example"
+    (let [{:keys [customer payment]} *env*
+          ;; This example requires a correlated subquery. We want to query 
+          ;; payments table for each row in customers table. You can express this
+          ;; in Penkala by using `r/with-parent` and `[:parent-scope ...]` which lets
+          ;; you to access the columns from the parent scope in the inner subquery
+          payments (-> payment
+                       (r/with-parent customer)
+                       (r/select [:payment-id])
+                       (r/where  [:and
+                                  [:= :customer-id [:parent-scope :customer-id]]
+                                  [:> :amount 11]]))
+          customers (-> customer
+                        (r/select [:first-name :last-name])
+                        (r/where [:not [:exists payments]])
+                        (r/order-by [:first-name :last-name]))
+          res (-> (select! *env* customers)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:customer{:last-name "SELBY", :first-name "AARON"}
+                  #:customer{:last-name "GOOCH", :first-name "ADAM"}
+                  #:customer{:last-name "CLARY", :first-name "ADRIAN"}
+                  #:customer{:last-name "BISHOP", :first-name "AGNES"}
+                  #:customer{:last-name "KAHN", :first-name "ALAN"}
+                  #:customer{:last-name "CROUSE", :first-name "ALBERT"}
+                  #:customer{:last-name "HENNING", :first-name "ALBERTO"}
+                  #:customer{:last-name "GRESHAM", :first-name "ALEX"}
+                  #:customer{:last-name "FENNELL", :first-name "ALEXANDER"}
+                  #:customer{:last-name "CASILLAS", :first-name "ALFRED"}]))))

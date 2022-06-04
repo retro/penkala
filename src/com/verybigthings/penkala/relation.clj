@@ -81,6 +81,11 @@
    :ternary #{:between :not-between
               :between-symmetric :not-between-symmetric}})
 
+(def extract-fields
+  #{:century :day :decade :dow :doy :epoch :hour :isodow :isoyear
+    :microseconds :millennium :milliseconds :minute :month :quarter
+    :second :timezone :timezone-hour :timezone-minute :week :year})
+
 (def all-operations
   (set/union (:unary operations) (:binary operations) (:ternary operations)))
 
@@ -288,6 +293,13 @@
           :agg-vex ::value-expression
           :filter-vex ::value-expression)))
 
+(s/def ::extract
+  (s/and vector?
+         (s/cat
+          :extract #(= :extract %)
+          :field #(contains? extract-fields %)
+          :value-expression ::value-expression)))
+
 (s/def ::updates
   (s/map-of keyword? ::value-expression))
 
@@ -317,6 +329,7 @@
    :case ::case
    :filter ::filter
    :using ::using
+   :extract ::extract
    :function-call ::function-call
    :wrapped-literal ::wrapped-literal
    :wrapped-column ::wrapped-column
@@ -369,7 +382,7 @@
         (when id
           {:id id :name column-name :original column :db-name db-name})))))
 
-(defn extract-operator [[op-type operator]]
+(defn normalize-operator [[op-type operator]]
   (let [extracted-operator (if (= :operator op-type) operator (:subject operator))]
     (if (= :!= extracted-operator)
       :<>
@@ -430,18 +443,18 @@
 
       :unary-operation
       (-> node
-          (update-in [1 :op] extract-operator)
+          (update-in [1 :op] normalize-operator)
           (update-in [1 :arg1] #(process-value-expression rel %)))
 
       :binary-operation
       (-> node
-          (update-in [1 :op] extract-operator)
+          (update-in [1 :op] normalize-operator)
           (update-in [1 :arg1] #(process-value-expression rel %))
           (update-in [1 :arg2] #(process-value-expression rel %)))
 
       :ternary-operation
       (-> node
-          (update-in [1 :op] extract-operator)
+          (update-in [1 :op] normalize-operator)
           (update-in [1 :arg1] #(process-value-expression rel %))
           (update-in [1 :arg2] #(process-value-expression rel %))
           (update-in [1 :arg3] #(process-value-expression rel %)))
@@ -460,6 +473,10 @@
         (-> node
             (update-in [1 :column] #(process-value-expression rel %))
             (assoc-in [1 :in] in')))
+
+      :extract
+      (update-in node [1 :value-expression] #(process-value-expression rel %))
+
       node)))
 
 (defn process-projection [rel node-list]
@@ -754,6 +771,7 @@
   (-extend [this col-name extend-expression]
     (when (contains? (:aliases->ids this) col-name)
       (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
+
     (let [processed-extend (process-value-expression this (s/conform ::value-expression extend-expression))
           id               (keyword (gensym "column-"))]
       (-> this
@@ -1033,7 +1051,7 @@
 (s/fdef group-by
   :args (s/cat
          :rel ::relation
-         :group-by-clause ::column-list)
+         :group-by-clause ::group-by)
   :ret ::relation)
 
 (defn offset
@@ -1207,9 +1225,9 @@
 (s/fdef distinct
   :args (s/cat
          :rel ::relation
-         :distinct-expression (s/or
-                               :boolean boolean?
-                               :distinct-expression ::column-list))
+         :distinct-expression (s/? (s/or
+                                    :boolean boolean?
+                                    :distinct-expression ::column-list)))
   :ret ::relation)
 
 (defn only
@@ -1285,7 +1303,8 @@
   (-with-parent rel parent))
 
 (s/fdef with-parent
-  :args (s/cat :rel ::relation)
+  :args (s/cat :rel ::relation
+               :parent ::relation)
   :ret ::relation)
 
 (defn with-default-columns [rel]

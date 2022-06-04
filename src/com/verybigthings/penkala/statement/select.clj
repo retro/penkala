@@ -310,6 +310,12 @@
         (update :params into params)
         (update :query conj (str "ROLLUP (" (str/join ", " query) ")")))))
 
+(defmethod compile-value-expression :extract [acc env rel [_ {:keys [field value-expression]}]]
+  (let [{:keys [query params]} (compile-value-expression empty-acc env rel value-expression)]
+    (-> acc
+        (update :params into params)
+        (update :query conj (str "EXTRACT(" (->SCREAMING_SNAKE_CASE_STRING field) " FROM " (str/join " " query) ")")))))
+
 (defn compile-order-by [acc env rel order-by]
   (let [{:keys [query params]}
         (reduce
