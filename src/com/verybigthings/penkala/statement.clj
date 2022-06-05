@@ -15,14 +15,23 @@
             wrap-parens
             get-rel-alias-with-prefix
             get-rel-alias
+            get-relation-name
             get-schema-qualified-relation-name
             make-rel-alias-prefix]]
    [camel-snake-kebab.core
     :refer [->SCREAMING_SNAKE_CASE_STRING
-            ->snake_case_string]]))
+            ->snake_case_string]]
+   [com.stuartsierra.dependency :as dep]))
+
+;; This namespace holds everything that's needed to generate an SQL query.
+;; Previously this code was split across multiple namespaces, but there are 
+;; cases (CTEs) where this organization was becoming impossible, because of 
+;; circular dependencies between namespaces.
 
 (def ^:dynamic *scopes* [])
 (def ^:dynamic *use-column-db-name-for* #{})
+(def ^:dynamic *cte-registry* nil)
+(def ^:dynamic *cte-stack* [])
 
 (def empty-acc {:query [] :params []})
 
@@ -604,25 +613,47 @@
         (with-projection env (dissoc rel :joins)))
     acc))
 
-(defn with-from [acc env rel]
-  (if-let [rel-query (get-in rel [:spec :query])]
-    (let [rel-alias-prefix (make-rel-alias-prefix env)
-          subquery-env     (-> env
-                               (update ::relation-alias-prefix vec-conj rel-alias-prefix))
-          [query & params] (if (fn? rel-query)
-                             (binding [*scopes* (conj *scopes* {:env env :rel rel})]
-                               (rel-query subquery-env))
-                             rel-query)
-          rel-name         (get-rel-alias rel)]
-      (-> acc
-          (update :params into params)
-          (update :query conj (join-space ["FROM" (wrap-parens query) "AS" (q (get-rel-alias-with-prefix env rel-name))]))))
+(defn register-cte! [rel]
+  (when-not (get-in rel [:spec :cte :virtual?])
+    (let [cte-registry @*cte-registry*
+          cte-name (get-in rel [:spec :name])
+          registered-cte (get cte-registry cte-name)
+          registered-ancestors (:ancestors registered-cte)
+          parent-cte (last *cte-stack*)
+          ancestors (cond
+                      (and (seq registered-ancestors) parent-cte) (conj registered-ancestors parent-cte)
+                      (seq registered-ancestors) registered-ancestors
+                      parent-cte #{parent-cte}
+                      :else #{})]
+      (swap! *cte-registry* assoc cte-name {:cte rel :ancestors ancestors}))))
 
-    (let [rel-name (get-rel-alias rel)]
-      (update acc :query into [(if (:only rel) "FROM ONLY" "FROM")
-                               (get-schema-qualified-relation-name env rel)
-                               "AS"
-                               (q (get-rel-alias-with-prefix env rel-name))]))))
+(defn with-selectable-from [acc env rel]
+  (let [rel-query (get-in rel [:spec :query])]
+    (cond
+      (get-in rel [:spec :cte])
+      (do
+        (register-cte! rel)
+        (update acc :query conj (join-space ["FROM" (get-relation-name rel)])))
+
+      rel-query
+      (let [rel-alias-prefix (make-rel-alias-prefix env)
+            subquery-env     (-> env
+                                 (update ::relation-alias-prefix vec-conj rel-alias-prefix))
+            [query & params] (if (fn? rel-query)
+                               (binding [*scopes* (conj *scopes* {:env env :rel rel})]
+                                 (rel-query subquery-env))
+                               rel-query)
+            rel-name         (get-rel-alias rel)]
+        (-> acc
+            (update :params into params)
+            (update :query conj (join-space ["FROM" (wrap-parens query) "AS" (q (get-rel-alias-with-prefix env rel-name))]))))
+
+      :else
+      (let [rel-name (get-rel-alias rel)]
+        (update acc :query into [(if (:only rel) "FROM ONLY" "FROM")
+                                 (get-schema-qualified-relation-name env rel)
+                                 "AS"
+                                 (q (get-rel-alias-with-prefix env rel-name))])))))
 
 (defn with-joins
   ([acc env rel] (with-joins acc env rel []))
@@ -784,52 +815,142 @@
     (update acc :query conj (str "FETCH NEXT" spc fetch spc "ROWS ONLY"))
     acc))
 
+(defn with-cte [env acc cte]
+  (let [cte-query (get-in cte [:spec :query])
+        [query & params] (cte-query env)
+        cte-query (cond-> []
+                    (get-in cte [:spec :cte :is-recursive])
+                    (into ["RECURSIVE"])
+
+                    true
+                    (into [(q (get-in cte [:spec :name])) "AS" (wrap-parens query)])
+
+                    true
+                    join-space)]
+    (-> acc
+        (update :query conj cte-query)
+        (update :params into params))))
+
+(defn sort-ctes [ctes-acc]
+  (let [g (reduce-kv
+           (fn [g cte-name {:keys [ancestors]}]
+             (reduce #(dep/depend %1 cte-name %2) g ancestors))
+           (dep/graph)
+           ctes-acc)
+        sorted (vec (reverse (dep/topo-sort g)))
+        dep-free (-> (reduce #(dissoc %1 %2) ctes-acc sorted)
+                     keys)]
+    (into sorted dep-free)))
+
+(defn with-ctes
+  ([env acc] (with-ctes env acc {}))
+  ([env acc ctes-acc]
+   ;; First get current state of registry
+   (let [cte-registry @*cte-registry*]
+     ;; Reset *cte-registry* to initial value. This way, if 
+     ;; there are some values in the registry after we generate
+     ;; the current batch, it means that ctes from the current
+     ;; batch referenced some other ctes
+     (reset! *cte-registry* {})
+
+     (let [ctes-acc' (reduce-kv
+                      (fn [acc cte-name {:keys [ancestors cte]}]
+                        ;; If we already have this cte in the registry, just add a new ancestor, otherwise
+                        ;; compile CTE and add it to the accumulator
+                        (if (get acc cte-name)
+                          (update-in acc [cte-name :ancestors] set/union ancestors)
+                          (binding [*cte-stack* (conj *cte-stack* cte-name)]
+                            (assoc acc cte-name (-> (with-cte env empty-acc cte)
+                                                    (assoc :ancestors ancestors))))))
+                      ctes-acc
+                      cte-registry)]
+       (if (seq @*cte-registry*)
+         (recur env acc ctes-acc')
+         (let [ctes-sort-order (sort-ctes ctes-acc')
+               {:keys [query params]} (reduce
+                                       (fn [acc cte-name]
+                                         (let [{:keys [query params]} (get ctes-acc' cte-name)]
+                                           (-> acc
+                                               (update :query into query)
+                                               (update :params into params))))
+                                       empty-acc
+                                       ctes-sort-order)]
+
+           (cond-> acc
+             (seq query) (update :query conj (join-space ["WITH" (join-comma query)]))
+             (seq params) (update :params into params))))))))
+
+(defmacro with-cte-registry!
+  "Binds a *cte-registry* if it's not bound yet. Otherwise, it leaves the binding in place.
+   This ensures that only the entry function will bind the registry, and then process it, since
+   format-query functions can be called recursively.
+   
+   Since we can ancounter an CTE anywhere in the tree, we need a registry, so we could place the CTE 
+   queries before the normal query."
+  [env & body]
+  `(let [cte-registry# *cte-registry*]
+     (if cte-registry#
+       (do ~@body)
+       (binding [*cte-registry* (atom {})]
+         (let [[query# & params#] (do ~@body)
+               {ctes-query# :query ctes-params# :params} (with-ctes ~env empty-acc)
+               final-query# (if (seq ctes-query#)
+                              (join-space [(join-space ctes-query#) query#])
+                              query#)
+               final-params# (concat ctes-params# params#)]
+           (into [final-query#] final-params#))))))
+
 (defn format-select-query-without-params-resolution [env rel]
-  (let [{:keys [query params]} (-> {:query ["SELECT"] :params []}
-                                   (with-distinct env rel)
-                                   (with-projection env rel)
-                                   (with-from env rel)
-                                   (with-joins env rel)
-                                   (with-where env rel)
-                                   (with-group-by env rel)
-                                   (with-having env rel)
-                                   (with-order-by env rel)
-                                   (with-lock env rel)
-                                   (with-offset env rel)
-                                   (with-fetch env rel))]
-    (into [(join-space query)] params)))
+  (with-cte-registry! env
+    (let [{:keys [query params]} (-> {:query ["SELECT"] :params []}
+                                     (with-distinct env rel)
+                                     (with-projection env rel)
+                                     (with-selectable-from env rel)
+                                     (with-joins env rel)
+                                     (with-where env rel)
+                                     (with-group-by env rel)
+                                     (with-having env rel)
+                                     (with-order-by env rel)
+                                     (with-lock env rel)
+                                     (with-offset env rel)
+                                     (with-fetch env rel))]
+      (into [(join-space query)] params))))
 
 (defn format-select-query [env rel param-values]
-  (let [[query & params] (format-select-query-without-params-resolution env rel)
-        resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
-    (into [query] resolved-params)))
+  (with-cte-registry! env
+    (let [[query & params] (format-select-query-without-params-resolution env rel)
+          resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
+      (into [query] resolved-params))))
 
 (defn format-delete-query [env deletable param-values]
-  (let [{:keys [query params]} (-> {:query [(if (:only deletable) "DELETE FROM ONLY" "DELETE FROM")
-                                            (get-schema-qualified-relation-name env deletable)]
-                                    :params []}
-                                   (with-using env deletable)
-                                   (with-where env deletable)
-                                   (with-returning env deletable))
-        resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
-    (into [(join-space query)] resolved-params)))
+  (with-cte-registry! env
+    (let [{:keys [query params]} (-> {:query [(if (:only deletable) "DELETE FROM ONLY" "DELETE FROM")
+                                              (get-schema-qualified-relation-name env deletable)]
+                                      :params []}
+                                     (with-using env deletable)
+                                     (with-where env deletable)
+                                     (with-returning env deletable))
+          resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
+      (into [(join-space query)] resolved-params))))
 
 (defn format-insert-query [env insertable]
-  (let [{:keys [query params]} (-> {:query ["INSERT INTO"
-                                            (get-schema-qualified-relation-name env insertable)]
-                                    :params []}
-                                   (with-insertable-columns-and-values env insertable)
-                                   (with-on-conflict env insertable)
-                                   (with-returning env insertable))]
-    (into [(join-space query)] params)))
+  (with-cte-registry! env
+    (let [{:keys [query params]} (-> {:query ["INSERT INTO"
+                                              (get-schema-qualified-relation-name env insertable)]
+                                      :params []}
+                                     (with-insertable-columns-and-values env insertable)
+                                     (with-on-conflict env insertable)
+                                     (with-returning env insertable))]
+      (into [(join-space query)] params))))
 
 (defn format-update-query [env updatable param-values]
-  (let [{:keys [query params]} (-> {:query [(if (:only updatable) "UPDATE ONLY" "UPDATE")
-                                            (get-schema-qualified-relation-name env updatable)]
-                                    :params []}
-                                   (with-updates env updatable)
-                                   (with-updatable-from env updatable)
-                                   (with-where env updatable)
-                                   (with-returning env updatable))
-        resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
-    (into [(join-space query)] resolved-params)))
+  (with-cte-registry! env
+    (let [{:keys [query params]} (-> {:query [(if (:only updatable) "UPDATE ONLY" "UPDATE")
+                                              (get-schema-qualified-relation-name env updatable)]
+                                      :params []}
+                                     (with-updates env updatable)
+                                     (with-updatable-from env updatable)
+                                     (with-where env updatable)
+                                     (with-returning env updatable))
+          resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
+      (into [(join-space query)] resolved-params))))

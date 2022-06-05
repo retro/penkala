@@ -230,7 +230,7 @@
                                     (mapv #(get-prefixed-col-name path-prefix %)))
            default-namespace   (:namespace overrides)
            namespace           (if (nil? default-namespace)
-                                 (->kebab-case-string (get-in relation [:spec :name]))
+                                 (get-in relation [:spec :namespace])
                                  default-namespace)
            decompose-to        (get overrides :decompose-to :coll)
            processor           (get overrides :processor identity)

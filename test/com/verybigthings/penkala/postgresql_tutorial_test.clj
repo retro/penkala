@@ -2691,3 +2691,103 @@
                   #:customer{:last-name "GRESHAM", :first-name "ALEX"}
                   #:customer{:last-name "FENNELL", :first-name "ALEXANDER"}
                   #:customer{:last-name "CASILLAS", :first-name "ALFRED"}]))))
+
+(deftest cte
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-cte/
+  (testing "A simple PostgreSQL CTE example"
+    (let [{:keys [film]} *env*
+          film-cte (r/as-cte
+                    (-> film
+                        (r/extend :length-description
+                          [:case
+                           [:when [:< :length [:cast 30 "int"]]
+                            "Short"]
+                           [:when [:< :length [:cast 90 "int"]]
+                            "Medium"]
+                           "Long"])
+                        (r/select [:film-id :title :length-description])))
+          query (-> film-cte
+                    (r/where [:= :length-description "Long"])
+                    (r/order-by [:title]))
+          res (-> (select! *env* query)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:film{:length-description "Long", :title "AFFAIR PREJUDICE", :film-id 4}
+                  #:film{:length-description "Long", :title "AFRICAN EGG", :film-id 5}
+                  #:film{:length-description "Long", :title "AGENT TRUMAN", :film-id 6}
+                  #:film{:length-description "Long", :title "ALABAMA DEVIL", :film-id 9}
+                  #:film{:length-description "Long", :title "ALAMO VIDEOTAPE", :film-id 11}
+                  #:film{:length-description "Long", :title "ALASKA PHANTOM", :film-id 12}
+                  #:film{:length-description "Long", :title "ALI FOREVER", :film-id 13}
+                  #:film{:length-description "Long", :title "ALICE FANTASIA", :film-id 14}
+                  #:film{:length-description "Long", :title "ALLEY EVOLUTION", :film-id 16}
+                  #:film{:length-description "Long", :title "AMADEUS HOLY", :film-id 19}])))
+
+  (testing "Joining a CTE with a table example"
+    (let [{:keys [rental staff]} *env*
+          rental-cte (r/as-cte
+                      (-> rental
+                          (r/extend-with-aggregate :rental-count [:count :rental-id])
+                          (r/select [:staff-id :rental-count])
+                          (r/group-by [:staff-id])))
+          query (-> staff
+                    (r/select [:first-name :last-name :staff-id])
+                    (r/inner-join rental-cte :rental-cte [:using :staff-id]))
+          res  (select! *env* query)]
+      (fact
+       res =in=> [#:staff{:last-name "Hillyer",
+                          :first-name "Mike",
+                          :staff-id 1,
+                          :rental-cte [#:rental{:rental-count 8040, :staff-id 1}]}
+                  #:staff{:last-name "Stephens",
+                          :first-name "Jon",
+                          :staff-id 2,
+                          :rental-cte [#:rental{:rental-count 8004, :staff-id 2}]}])))
+
+  (testing "Using CTE with a window function example"
+    (let [{:keys [film]} *env*
+          film-cte (r/as-cte
+                    (-> film
+                        (r/extend-with-window :length-rank [:rank] [:rating] [[:length :desc]])
+                        (r/select [:title :rating :length :length-rank])))
+          query (-> film-cte
+                    (r/where [:= :length-rank 1])
+                    (r/order-by [:title])) ;; Add order-by for consistent test results
+          res (select! *env* query)]
+      (fact
+       res =in=> [#:film{:length-rank 1, :title "CHICAGO NORTH", :length 185, :rating "PG-13"}
+                  #:film{:length-rank 1, :title "CONTROL ANTHEM", :length 185, :rating "G"}
+                  #:film{:length-rank 1, :title "CRYSTAL BREAKING", :length 184, :rating "NC-17"}
+                  #:film{:length-rank 1, :title "DARN FORRESTER", :length 185, :rating "G"}
+                  #:film{:length-rank 1, :title "GANGS PRIDE", :length 185, :rating "PG-13"}
+                  #:film{:length-rank 1, :title "HOME PITY", :length 185, :rating "R"}
+                  #:film{:length-rank 1, :title "KING EVOLUTION", :length 184, :rating "NC-17"}
+                  #:film{:length-rank 1, :title "MUSCLE BRIGHT", :length 185, :rating "G"}
+                  #:film{:length-rank 1, :title "POND SEATTLE", :length 185, :rating "PG-13"}
+                  #:film{:length-rank 1, :title "SOLDIERS EVOLUTION", :length 185, :rating "R"}
+                  #:film{:length-rank 1, :title "SONS INTERVIEW", :length 184, :rating "NC-17"}
+                  #:film{:length-rank 1, :title "SORORITY QUEEN", :length 184, :rating "NC-17"}
+                  #:film{:length-rank 1, :title "SWEET BROTHERHOOD", :length 185, :rating "R"}
+                  #:film{:length-rank 1, :title "WORST BANGER", :length 185, :rating "PG"}]))))
+
+(deftest recursive-query
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-recursive-query/
+  (let [{:keys [employees-2]} *env*
+        subordinates (r/as-cte
+                      (-> employees-2
+                          (r/where [:= :employee-id [:cast 2 "int"]]))
+                      (union [subordinates]
+                             (-> employees-2
+                                 (r/inner-join subordinates :subordinates [:= :manager-id :subordinates/employee-id] []))))
+        res (select! *env* subordinates)]
+    (fact
+     res =in=> [#:employees-2{:manager-id 1, :full-name "Megan Berry", :employee-id 2}
+                #:employees-2{:manager-id 2, :full-name "Bella Tucker", :employee-id 6}
+                #:employees-2{:manager-id 2, :full-name "Ryan Metcalfe", :employee-id 7}
+                #:employees-2{:manager-id 2, :full-name "Max Mills", :employee-id 8}
+                #:employees-2{:manager-id 2, :full-name "Benjamin Glover", :employee-id 9}
+                #:employees-2{:manager-id 7, :full-name "Piers Paige", :employee-id 16}
+                #:employees-2{:manager-id 7, :full-name "Ryan Henderson", :employee-id 17}
+                #:employees-2{:manager-id 8, :full-name "Frank Tucker", :employee-id 18}
+                #:employees-2{:manager-id 8, :full-name "Nathan Ferguson", :employee-id 19}
+                #:employees-2{:manager-id 8, :full-name "Kevin Rampling", :employee-id 20}])))

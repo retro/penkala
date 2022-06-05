@@ -1457,3 +1457,102 @@
 (s/fdef ->deletable
   :args (s/cat :relation ::relation)
   :ret ::deletable)
+
+(s/def ::as-cte
+  (s/cat
+   :rel any?
+   :recursive (s/?
+               (s/and list?
+                      (s/cat
+                       :type (s/and
+                              simple-symbol?
+                              (s/or
+                               :union #(= % 'union)
+                               :union-all #(= % 'union-all)))
+                       :binding (s/and
+                                 vector?
+                                 #(= 1 (count %))
+                                 (s/cat
+                                  :cte-sym simple-symbol?))
+                       :rel any?)))))
+
+(defn ->cte [cte-name rel]
+  (let [query (fn [env]
+                (get-select-query rel env))
+        cte-spec {:name cte-name
+                  :namespace (get-in rel [:spec :namespace])
+                  :pk (get-in rel [:spec :pk])
+                  :columns (get-projected-columns rel)
+                  :query query
+                  :cte {:is-recursive false}}]
+    (-> cte-spec
+        ->Relation
+        with-default-columns
+        with-default-projection
+        with-default-pk)))
+
+(defn cte->recursive-cte [cte-name recursive-type cte-rel recursive-rel]
+  (let [cte-query (get-in cte-rel [:spec :query])
+        recursive-query (fn [env]
+                          (let [[q1 & p1] (cte-query env)
+                                [q2 & p2] (get-select-query recursive-rel env)
+                                op ({:union " UNION " :union-all " UNION ALL"} recursive-type)]
+                            (vec (concat [(str/join op [q1 q2])] p1 p2))))]
+    (-> cte-rel
+        (assoc-in [:spec :name] (keyword cte-name))
+        (assoc-in [:spec :query] recursive-query)
+        (assoc-in [:spec :cte :is-recursive] true))))
+
+(defmacro as-cte [& args]
+  (s/assert ::as-cte args)
+  (let [conformed (s/conform ::as-cte args)
+        {:keys [rel recursive]} conformed]
+    (if recursive
+      (let [recursive-type (get-in recursive [:type 0])
+            cte-sym (get-in recursive [:binding :cte-sym])
+            cte-name (-> cte-sym (str "-") gensym str)
+            recursive-rel (:rel recursive)]
+        `(let [cte# (->cte ~cte-name ~rel)
+               ;; CTE that is expoesed to the recursive part shouldn't be
+               ;; generated in SQL, which is why it's marked as virtual
+               ~cte-sym (assoc-in cte# [:spec :cte :virtual?] true)]
+           (cte->recursive-cte ~cte-name ~recursive-type cte# ~recursive-rel)))
+      (let [cte-name (-> "cte-" gensym str)]
+        `(->cte ~cte-name ~rel)))))
+
+(s/fdef as-cte
+  :args ::as-cte
+  :ret any?)
+
+(comment
+  (require '[clj-kondo.hooks-api :as api]
+           '[clojure.pprint])
+  (defn as-cte [{:keys [node]}]
+    (let [children (:children node)
+          children-count (count children)]
+
+      (cond
+        (= 2 children-count)
+        {:node node}
+
+        (= 3 children-count)
+        (let [[_ body recursive-children] children
+              [recursive-op recursive-binding recursive-body] (:children recursive-children)]
+          (when-not (contains? #{'union 'union-all} (api/sexpr recursive-op))
+            (throw (ex-info "as-cte supports only union and union-all operations" {})))
+          {:node (api/list-node
+                  (list*
+                   (api/token-node 'do)
+                   body
+                   (api/list-node
+                    (list*
+                     (api/token-node 'fn)
+                     recursive-binding
+                     recursive-body))))})
+        :else
+        (throw (ex-info "as-cte macro has wrong form" {})))))
+
+  (def node {:node (api/parse-string "(as-cte (-> product (r/where [:= :id 1])) (union [products] (-> product (r/left-join products :products [:using :id] []))))")})
+  (as-cte node)
+  ;;
+  )

@@ -51,6 +51,9 @@
       (str (q rel-schema) "." (q rel-name))
       (q rel-name))))
 
+(defn get-relation-name [rel]
+  (q (get-in rel [:spec :name])))
+
 (def join-separator "__")
 (def join-separator-re #"__")
 
