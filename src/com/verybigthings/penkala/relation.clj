@@ -11,6 +11,7 @@
                      col->alias
                      get-relation-name
                      wrap-parens]]
+            [com.verybigthings.penkala.statement :as statement]
             [com.verybigthings.penkala.statement.select :as sel]
             [com.verybigthings.penkala.statement.insert :as ins]
             [com.verybigthings.penkala.statement.update :as upd]
@@ -1484,13 +1485,18 @@
 
 (defn rel->cte [cte-name rel]
   (let [query (fn [env]
-                (get-select-query rel env))
+                (cond
+                  (satisfies? IInsertable rel) (get-insert-query rel env)
+                  (satisfies? IUpdatable rel) (statement/format-update-query-without-params-resolution env rel)
+                  (satisfies? IDeletable rel) (statement/format-delete-query-without-params-resolution env rel)
+                  (satisfies? IRelation rel) (statement/format-select-query-without-params-resolution env rel)
+                  :else (throw (ex-info "Can't turn relation into CTE" {:relation rel}))))
         cte-spec {:name cte-name
                   :namespace (get-in rel [:spec :namespace])
                   :pk (get-in rel [:spec :pk])
                   :columns (get-projected-columns rel)
                   :query query
-                  :cte {:is-recursive false}}]
+                  :cte {:recursive? false}}]
     (-> cte-spec
         ->Relation
         with-default-columns
@@ -1503,13 +1509,13 @@
   (let [cte-query (get-in cte-rel [:spec :query])
         recursive-query (fn [env]
                           (let [[q1 & p1] (cte-query env)
-                                [q2 & p2] (get-select-query recursive-rel env)
+                                [q2 & p2] (statement/format-select-query-without-params-resolution env recursive-rel)
                                 op ({:union " UNION " :union-all " UNION ALL "} recursive-type)]
                             (vec (concat [(str/join op [q1 q2])] p1 p2))))]
     (-> cte-rel
         (assoc-in [:spec :name] (keyword cte-name))
         (assoc-in [:spec :query] recursive-query)
-        (assoc-in [:spec :cte :is-recursive] true))))
+        (assoc-in [:spec :cte :recursive?] true))))
 
 (defn cte->base-cte [cte]
   ;; Converts the initial CTE to the base CTE that can be used by 
@@ -1528,9 +1534,12 @@
             cte-sym (get-in recursive [:binding :cte-sym])
             cte-name (-> cte-sym (str "-") gensym str)
             recursive-rel (:rel recursive)]
-        `(let [cte# (rel->cte ~cte-name ~rel)
-               ~cte-sym (cte->base-cte cte#)]
-           (cte->recursive-cte ~cte-name ~recursive-type cte# ~recursive-rel)))
+        `(do
+           (when-not (satisfies? IRelation ~rel)
+             (throw (ex-info "Insertable, Updatable, and Deletable can't be used in an recursive CTE" {:relation ~rel})))
+           (let [cte# (rel->cte ~cte-name ~rel)
+                 ~cte-sym (cte->base-cte cte#)]
+             (cte->recursive-cte ~cte-name ~recursive-type cte# ~recursive-rel))))
       (let [cte-name (-> "cte-" gensym str)]
         `(rel->cte ~cte-name ~rel)))))
 

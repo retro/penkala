@@ -820,7 +820,7 @@
   (let [cte-query (get-in cte [:spec :query])
         [query & params] (cte-query env)
         cte-query (cond-> []
-                    (get-in cte [:spec :cte :is-recursive])
+                    (get-in cte [:spec :cte :recursive?])
                     (into ["RECURSIVE"])
 
                     true
@@ -901,6 +901,12 @@
                final-params# (concat ctes-params# params#)]
            (into [final-query#] final-params#))))))
 
+(defn make-format-query-with-params-resolution [query-fn]
+  (fn [env rel param-values]
+    (let [[query & params] (query-fn env rel)
+          resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
+      (into [query] resolved-params))))
+
 (defn format-select-query-without-params-resolution [env rel]
   (with-cte-registry! env
     (let [{:keys [query params]} (-> {:query ["SELECT"] :params []}
@@ -917,22 +923,19 @@
                                      (with-fetch env rel))]
       (into [(join-space query)] params))))
 
-(defn format-select-query [env rel param-values]
-  (with-cte-registry! env
-    (let [[query & params] (format-select-query-without-params-resolution env rel)
-          resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
-      (into [query] resolved-params))))
+(def format-select-query (make-format-query-with-params-resolution format-select-query-without-params-resolution))
 
-(defn format-delete-query [env deletable param-values]
+(defn format-delete-query-without-params-resolution [env deletable]
   (with-cte-registry! env
     (let [{:keys [query params]} (-> {:query [(if (:only deletable) "DELETE FROM ONLY" "DELETE FROM")
                                               (get-schema-qualified-relation-name env deletable)]
                                       :params []}
                                      (with-using env deletable)
                                      (with-where env deletable)
-                                     (with-returning env deletable))
-          resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
-      (into [(join-space query)] resolved-params))))
+                                     (with-returning env deletable))]
+      (into [(join-space query)] params))))
+
+(def format-delete-query (make-format-query-with-params-resolution format-delete-query-without-params-resolution))
 
 (defn format-insert-query [env insertable]
   (with-cte-registry! env
@@ -944,7 +947,7 @@
                                      (with-returning env insertable))]
       (into [(join-space query)] params))))
 
-(defn format-update-query [env updatable param-values]
+(defn format-update-query-without-params-resolution [env updatable]
   (with-cte-registry! env
     (let [{:keys [query params]} (-> {:query [(if (:only updatable) "UPDATE ONLY" "UPDATE")
                                               (get-schema-qualified-relation-name env updatable)]
@@ -952,6 +955,7 @@
                                      (with-updates env updatable)
                                      (with-updatable-from env updatable)
                                      (with-where env updatable)
-                                     (with-returning env updatable))
-          resolved-params (if param-values (map (fn [p] (if (fn? p) (p param-values) p)) params) params)]
-      (into [(join-space query)] resolved-params))))
+                                     (with-returning env updatable))]
+      (into [(join-space query)] params))))
+
+(def format-update-query (make-format-query-with-params-resolution format-update-query-without-params-resolution))
