@@ -31,7 +31,7 @@
 (def ^:dynamic *scopes* [])
 (def ^:dynamic *use-column-db-name-for* #{})
 (def ^:dynamic *cte-registry* nil)
-(def ^:dynamic *cte-stack* [])
+(def ^:dynamic *current-cte* [])
 
 (def empty-acc {:query [] :params []})
 
@@ -614,18 +614,17 @@
     acc))
 
 (defn register-cte! [rel]
-  (when-not (get-in rel [:spec :cte :virtual?])
-    (let [cte-registry @*cte-registry*
-          cte-name (get-in rel [:spec :name])
-          registered-cte (get cte-registry cte-name)
-          registered-ancestors (:ancestors registered-cte)
-          parent-cte (last *cte-stack*)
-          ancestors (cond
-                      (and (seq registered-ancestors) parent-cte) (conj registered-ancestors parent-cte)
-                      (seq registered-ancestors) registered-ancestors
-                      parent-cte #{parent-cte}
-                      :else #{})]
-      (swap! *cte-registry* assoc cte-name {:cte rel :ancestors ancestors}))))
+  (let [cte-registry @*cte-registry*
+        cte-name (get-in rel [:spec :name])
+        registered-cte (get cte-registry cte-name)
+        registered-ancestors (:ancestors registered-cte)
+        parent-cte *current-cte*
+        ancestors (cond
+                    (and (seq registered-ancestors) parent-cte) (conj registered-ancestors parent-cte)
+                    (seq registered-ancestors) registered-ancestors
+                    parent-cte #{parent-cte}
+                    :else #{})]
+    (swap! *cte-registry* assoc cte-name {:cte rel :ancestors ancestors})))
 
 (defn with-selectable-from [acc env rel]
   (let [rel-query (get-in rel [:spec :query])]
@@ -646,7 +645,7 @@
             rel-name         (get-rel-alias rel)]
         (-> acc
             (update :params into params)
-            (update :query conj (join-space ["FROM" (wrap-parens query) "AS" (q (get-rel-alias-with-prefix env rel-name))]))))
+            (update :query conj (join-space ["FROM" query "AS" (q (get-rel-alias-with-prefix env rel-name))]))))
 
       :else
       (let [rel-name (get-rel-alias rel)]
@@ -656,7 +655,8 @@
                                  (q (get-rel-alias-with-prefix env rel-name))])))))
 
 (defn with-joins
-  ([acc env rel] (with-joins acc env rel []))
+  ([acc env rel]
+   (with-joins acc env rel []))
   ([acc env rel path-prefix]
    (reduce-kv
     (fn [acc' alias j]
@@ -692,6 +692,15 @@
         (compile-value-expression env rel having))
     acc))
 
+(defn any-join-has-projection? [joins]
+  (->> joins
+       (map (fn [[_ join]]
+              (or (-> join :projection seq)
+                  (-> join :relation :projection seq)
+                  (any-join-has-projection? (get-in join [:relation :joins])))))
+       (filter identity)
+       first))
+
 (defn rel-should-be-implicitely-grouped-by? [{:keys [projection aliases->ids columns joins]}]
   (let [{:keys [aggregate non-aggregate]}
         (reduce
@@ -712,20 +721,12 @@
     ;; This checks if we should add implicit group by clause. This should happen in two cases:
     ;; 1. Relation has both aggregate and non-aggregate columns
     ;; 2. Relation has aggregate column and it has at least one joined relation that has a projection
-    ;;
-    ;; We don't have to recursively check because joins will be wrapped in a subselect, so joins of joins
-    ;; are invisible from this perspective
     (cond
       (and aggregate non-aggregate)
       true
 
       aggregate
-      (->> joins
-           (map (fn [[_ join]]
-                  (or (-> join :projection seq)
-                      (-> join :relation :projection seq))))
-           (filter identity)
-           first)
+      (any-join-has-projection? joins)
 
       :else
       false)))
@@ -859,7 +860,7 @@
                         ;; compile CTE and add it to the accumulator
                         (if (get acc cte-name)
                           (update-in acc [cte-name :ancestors] set/union ancestors)
-                          (binding [*cte-stack* (conj *cte-stack* cte-name)]
+                          (binding [*current-cte* cte-name]
                             (assoc acc cte-name (-> (with-cte env empty-acc cte)
                                                     (assoc :ancestors ancestors))))))
                       ctes-acc

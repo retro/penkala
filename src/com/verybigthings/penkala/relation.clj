@@ -5,7 +5,12 @@
             [clojure.string :as str]
             [clojure.walk :refer [prewalk]]
             [com.verybigthings.penkala.util
-             :refer [expand-join-path path-prefix-join  joins as-vec col->alias]]
+             :refer [expand-join-path
+                     path-prefix-join
+                     joins as-vec
+                     col->alias
+                     get-relation-name
+                     wrap-parens]]
             [com.verybigthings.penkala.statement.select :as sel]
             [com.verybigthings.penkala.statement.insert :as ins]
             [com.verybigthings.penkala.statement.update :as upd]
@@ -589,7 +594,7 @@
           query     (fn [env]
                       (let [[query1 & params1] (get-select-query rel1 env)
                             [query2 & params2] (get-select-query rel2 env)]
-                        (vec (concat [(str query1 " " operator " " query2)] params1 params2))))]
+                        (vec (concat [(wrap-parens (str query1 " " operator " " query2))] params1 params2))))]
       {:name rel-name
        :pk (when (= rel1-pk rel2-pk) rel1-pk)
        :columns rel1-cols
@@ -834,7 +839,8 @@
   (-wrap [this]
     (spec->relation {:name (get-in this [:spec :name])
                      :columns (get-projected-columns this)
-                     :query #(get-select-query this %)
+                     :query (fn [env]
+                              (update (get-select-query this env) 0 wrap-parens))
                      :wrapped this}))
   (-with-parent [this parent-rel]
     (assoc this :parent parent-rel))
@@ -1476,7 +1482,7 @@
                                   :cte-sym simple-symbol?))
                        :rel any?)))))
 
-(defn ->cte [cte-name rel]
+(defn rel->cte [cte-name rel]
   (let [query (fn [env]
                 (get-select-query rel env))
         cte-spec {:name cte-name
@@ -1492,16 +1498,26 @@
         with-default-pk)))
 
 (defn cte->recursive-cte [cte-name recursive-type cte-rel recursive-rel]
+  ;; Converts initial CTE to the recursive version by creating UNION or UNION ALL
+  ;; between the initial CTE and recursive CTE part.
   (let [cte-query (get-in cte-rel [:spec :query])
         recursive-query (fn [env]
                           (let [[q1 & p1] (cte-query env)
                                 [q2 & p2] (get-select-query recursive-rel env)
-                                op ({:union " UNION " :union-all " UNION ALL"} recursive-type)]
+                                op ({:union " UNION " :union-all " UNION ALL "} recursive-type)]
                             (vec (concat [(str/join op [q1 q2])] p1 p2))))]
     (-> cte-rel
         (assoc-in [:spec :name] (keyword cte-name))
         (assoc-in [:spec :query] recursive-query)
         (assoc-in [:spec :cte :is-recursive] true))))
+
+(defn cte->base-cte [cte]
+  ;; Converts the initial CTE to the base CTE that can be used by 
+  ;; by the recursive part as the binding. Ensures that this CTE 
+  ;; won't be serialized as a CTE in the SQL.
+  (-> cte
+      (update :spec dissoc :cte)
+      (assoc-in [:spec :query] (constantly [(get-relation-name cte)]))))
 
 (defmacro as-cte [& args]
   (s/assert ::as-cte args)
@@ -1512,47 +1528,12 @@
             cte-sym (get-in recursive [:binding :cte-sym])
             cte-name (-> cte-sym (str "-") gensym str)
             recursive-rel (:rel recursive)]
-        `(let [cte# (->cte ~cte-name ~rel)
-               ;; CTE that is expoesed to the recursive part shouldn't be
-               ;; generated in SQL, which is why it's marked as virtual
-               ~cte-sym (assoc-in cte# [:spec :cte :virtual?] true)]
+        `(let [cte# (rel->cte ~cte-name ~rel)
+               ~cte-sym (cte->base-cte cte#)]
            (cte->recursive-cte ~cte-name ~recursive-type cte# ~recursive-rel)))
       (let [cte-name (-> "cte-" gensym str)]
-        `(->cte ~cte-name ~rel)))))
+        `(rel->cte ~cte-name ~rel)))))
 
 (s/fdef as-cte
   :args ::as-cte
   :ret any?)
-
-(comment
-  (require '[clj-kondo.hooks-api :as api]
-           '[clojure.pprint])
-  (defn as-cte [{:keys [node]}]
-    (let [children (:children node)
-          children-count (count children)]
-
-      (cond
-        (= 2 children-count)
-        {:node node}
-
-        (= 3 children-count)
-        (let [[_ body recursive-children] children
-              [recursive-op recursive-binding recursive-body] (:children recursive-children)]
-          (when-not (contains? #{'union 'union-all} (api/sexpr recursive-op))
-            (throw (ex-info "as-cte supports only union and union-all operations" {})))
-          {:node (api/list-node
-                  (list*
-                   (api/token-node 'do)
-                   body
-                   (api/list-node
-                    (list*
-                     (api/token-node 'fn)
-                     recursive-binding
-                     recursive-body))))})
-        :else
-        (throw (ex-info "as-cte macro has wrong form" {})))))
-
-  (def node {:node (api/parse-string "(as-cte (-> product (r/where [:= :id 1])) (union [products] (-> product (r/left-join products :products [:using :id] []))))")})
-  (as-cte node)
-  ;;
-  )
