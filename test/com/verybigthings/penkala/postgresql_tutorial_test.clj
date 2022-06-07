@@ -3,7 +3,7 @@
    https://www.postgresqltutorial.com/. You can follow the tutorials
    and see how are queries implemented with Penkala"
   (:require [clojure.test :refer [deftest testing use-fixtures]]
-            [com.verybigthings.penkala.next-jdbc :refer [insert! select!]]
+            [com.verybigthings.penkala.next-jdbc :refer [insert! select! select-one!]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
             [testit.core :refer [fact facts => =in=>]]))
@@ -2791,3 +2791,81 @@
                 #:employees-2{:manager-id 8, :full-name "Frank Tucker", :employee-id 18}
                 #:employees-2{:manager-id 8, :full-name "Nathan Ferguson", :employee-id 19}
                 #:employees-2{:manager-id 8, :full-name "Kevin Rampling", :employee-id 20}])))
+
+(deftest recursive-query-2
+  ;; https://towardsdatascience.com/recursive-sql-queries-with-postgresql-87e2a453f1b
+  (testing "Degrees of separation"
+    (let [{:keys [employees-3]} *env*
+          employees-3-cte (r/as-cte
+                           (-> employees-3
+                               (r/extend :degree 0)
+                               (r/select [:id :degree])
+                               (r/where [:= :id 1]))
+                           (union-all [rec]
+                                      (-> employees-3
+                                          (r/inner-join rec :rec [:= :manager-id :rec/id] [])
+                                          (r/extend :degree ["+" :rec/degree 1])
+                                          (r/select [:id :degree]))))
+          query (-> employees-3
+                    (r/inner-join employees-3-cte :rec [:= :id :rec/id] [])
+                    (r/extend :separation [:concat "John and " :name " are separated by "
+                                           [:to-char :rec/degree "9"] " degrees of separation"])
+                    (r/where [:= :name "George"]))
+          res (select-one! *env* query)]
+      (fact
+       res => #:employees-3{:name "George", :manager-id 5, :separation "John and George are separated by  3 degrees of separation", :id 4, :salary 1800, :job "Developer"})))
+
+  (testing "Progression"
+    (let [{:keys [employees-3]} *env*
+          employees-3-cte (r/as-cte
+                           (-> employees-3
+                               (r/extend :level 0)
+                               (r/select [:id :manager-id :job :level])
+                               (r/where [:= :id 4]))
+                           (union-all [rec]
+                                      (-> employees-3
+                                          (r/inner-join rec :rec [:= :id :rec/manager-id] [])
+                                          (r/extend :level ["+" :rec/level 1])
+                                          (r/select [:id :manager-id :job :level]))))
+          query (-> employees-3-cte
+                    (r/extend-with-aggregate :path [:string-agg :job " > " [:order-by [:level :asc]]])
+                    (r/select [:path]))
+          res (select-one! *env* query)]
+      (fact
+       res => #:employees-3{:path "Developer > Manager > VP > CEO"})))
+
+  (testing "Recursion on Graphs"
+    (let [{:keys [edges]} *env*
+          paths (r/as-cte
+                 (-> edges
+                     (r/rename :src :source)
+                     (r/extend :path [:array :source :dest])
+                     (r/select [:source :dest :path]))
+                 (union-all [paths]
+                            (-> edges
+                                (r/inner-join paths :p [:and [:= :src :p/dest] [:<> :dest [:all :p/path]]] [])
+                                (r/extend :source :p/source)
+                                (r/extend :path [:array-cat :p/path [:array :dest]])
+
+                                (r/select [:source :dest :path]))))
+          res (select! *env* paths)]
+      (fact
+       res => [#:edges{:path [1 2], :source 1, :dest 2}
+               #:edges{:path [2 3], :source 2, :dest 3}
+               #:edges{:path [2 4], :source 2, :dest 4}
+               #:edges{:path [3 4], :source 3, :dest 4}
+               #:edges{:path [4 1], :source 4, :dest 1}
+               #:edges{:path [3 5], :source 3, :dest 5}
+               #:edges{:path [4 1 2], :source 4, :dest 2}
+               #:edges{:path [1 2 3], :source 1, :dest 3}
+               #:edges{:path [1 2 4], :source 1, :dest 4}
+               #:edges{:path [2 3 4], :source 2, :dest 4}
+               #:edges{:path [2 3 5], :source 2, :dest 5}
+               #:edges{:path [2 4 1], :source 2, :dest 1}
+               #:edges{:path [3 4 1], :source 3, :dest 1}
+               #:edges{:path [3 4 1 2], :source 3, :dest 2}
+               #:edges{:path [4 1 2 3], :source 4, :dest 3}
+               #:edges{:path [1 2 3 4], :source 1, :dest 4}
+               #:edges{:path [1 2 3 5], :source 1, :dest 5}
+               #:edges{:path [2 3 4 1], :source 2, :dest 1}
+               #:edges{:path [4 1 2 3 5], :source 4, :dest 5}]))))

@@ -183,6 +183,13 @@
     :op #(= :using %)
     :arg1 simple-keyword?)))
 
+(s/def ::order-by-function-argument
+  (s/and
+   vector?
+   (s/cat
+    :op #(= :order-by %)
+    :order-by (s/* ::order))))
+
 (s/def ::function-call
   (s/and
    vector?
@@ -336,6 +343,7 @@
    :filter ::filter
    :using ::using
    :extract ::extract
+   :order-by-function-argument ::order-by-function-argument
    :function-call ::function-call
    :wrapped-literal ::wrapped-literal
    :wrapped-column ::wrapped-column
@@ -393,6 +401,8 @@
     (if (= :!= extracted-operator)
       :<>
       extracted-operator)))
+
+(declare process-orders)
 
 (defn process-value-expression [rel node]
   (let [[node-type args] node]
@@ -482,6 +492,9 @@
 
       :extract
       (update-in node [1 :value-expression] #(process-value-expression rel %))
+
+      :order-by-function-argument
+      (update-in node [1 :order-by] #(process-orders rel %))
 
       node)))
 

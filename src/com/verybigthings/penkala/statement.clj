@@ -55,14 +55,34 @@
 
 (defmethod compile-function-call :default [acc env rel function-name args]
   (let [sql-function-name (->snake_case_string function-name)
-        {:keys [query params]} (reduce
-                                (fn [acc arg]
-                                  (compile-value-expression acc env rel arg))
-                                empty-acc
-                                args)]
+        last-arg (last args)
+        has-order-by (= :order-by-function-argument (first last-arg))
+
+        {args-query :query args-params :params}
+        (reduce
+         (fn [acc arg]
+           (compile-value-expression acc env rel arg))
+         empty-acc
+         (if has-order-by (butlast args) args))
+
+        {order-by-query :query order-by-params :params}
+        (when has-order-by
+          (compile-value-expression empty-acc env rel last-arg))
+
+        final-query
+        (if has-order-by
+          (str sql-function-name (wrap-parens (join-comma args-query) spc (join-space order-by-query)))
+          (str sql-function-name (-> args-query join-comma wrap-parens)))]
     (-> acc
-        (update :query conj (str sql-function-name (-> query join-comma wrap-parens)))
-        (update :params into params))))
+        (update :query conj final-query)
+        (update :params into args-params)
+        (update :params into order-by-params))))
+
+(defmethod compile-function-call :array [acc env rel function-name args]
+  (let [{:keys [query params]} (reduce #(compile-value-expression %1 env rel %2) empty-acc args)]
+    (-> acc
+        (update :params into params)
+        (update :query conj (str "ARRAY[" (join-comma query) "]")))))
 
 (defmethod compile-value-expression :default [_ _ _ [vex-type & args]]
   (throw
@@ -327,6 +347,11 @@
     (-> acc
         (update :params into params)
         (update :query conj (str "EXTRACT" (wrap-parens (->SCREAMING_SNAKE_CASE_STRING field) spc "FROM" spc (join-space query)))))))
+
+(declare compile-order-by)
+
+(defmethod compile-value-expression :order-by-function-argument [acc env rel [_ {:keys [order-by]}]]
+  (compile-order-by acc env rel order-by))
 
 (defn compile-order-by [acc env rel order-by]
   (let [{:keys [query params]}
