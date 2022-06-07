@@ -6,10 +6,12 @@
             [com.verybigthings.penkala.next-jdbc :refer [insert! select! select-one!]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
-            [testit.core :refer [fact facts => =in=>]]))
+            [testit.core :refer [fact facts => =in=>]]
+            [com.verybigthings.penkala.env :as env]
+            [next.jdbc :as jdbc]))
 
 ;;(use-fixtures :each (partial th/reset-db-fixture "pagila"))
-(use-fixtures :once th/pagila-db-fixture th/instrument-penkala)
+(use-fixtures :once th/pagila-db-fixture #_th/instrument-penkala)
 
 (defn date? [val]
   (= java.time.LocalDate (class val)))
@@ -2419,16 +2421,16 @@
           res (-> (select! *env* rental)
                   (subvec 0 10))]
       (fact
-       res =in=> [#:rental{:day 24.0, :month 5.0, :rental-count 2, :year 2005.0}
-                  #:rental{:day 25.0, :month 5.0, :rental-count 136, :year 2005.0}
-                  #:rental{:day 26.0, :month 5.0, :rental-count 175, :year 2005.0}
-                  #:rental{:day 27.0, :month 5.0, :rental-count 168, :year 2005.0}
-                  #:rental{:day 28.0, :month 5.0, :rental-count 194, :year 2005.0}
-                  #:rental{:day 29.0, :month 5.0, :rental-count 156, :year 2005.0}
-                  #:rental{:day 30.0, :month 5.0, :rental-count 155, :year 2005.0}
-                  #:rental{:day 31.0, :month 5.0, :rental-count 170, :year 2005.0}
-                  #:rental{:day nil, :month 5.0, :rental-count 1156, :year 2005.0}
-                  #:rental{:day 14.0, :month 6.0, :rental-count 2, :year 2005.0}]))))
+       res =in=> [#:rental{:day 24M, :month 5M, :rental-count 2, :year 2005M}
+                  #:rental{:day 25M, :month 5M, :rental-count 136, :year 2005M}
+                  #:rental{:day 26M, :month 5M, :rental-count 175, :year 2005M}
+                  #:rental{:day 27M, :month 5M, :rental-count 168, :year 2005M}
+                  #:rental{:day 28M, :month 5M, :rental-count 194, :year 2005M}
+                  #:rental{:day 29M, :month 5M, :rental-count 156, :year 2005M}
+                  #:rental{:day 30M, :month 5M, :rental-count 155, :year 2005M}
+                  #:rental{:day 31M, :month 5M, :rental-count 170, :year 2005M}
+                  #:rental{:day nil, :month 5M, :rental-count 1156, :year 2005M}
+                  #:rental{:day 14M, :month 6M, :rental-count 2, :year 2005M}]))))
 
 (deftest subquery
   ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-subquery/
@@ -2838,34 +2840,145 @@
     (let [{:keys [edges]} *env*
           paths (r/as-cte
                  (-> edges
-                     (r/rename :src :source)
-                     (r/extend :path [:array :source :dest])
-                     (r/select [:source :dest :path]))
+                     (r/extend :path [:array :src :dest])
+                     (r/select [:src :dest :path]))
+                 ;; This query requires a bit more ceremony than in raw SQL because Penkala 
+                 ;; generates projection automatically, so it's not possible to use positional
+                 ;; columns in projection. Since we want to both reference :dest and :path columns
+                 ;; from the accumulated query and compute different values in their place, 
+                 ;; we need to rename them and then extend relation with new versions of these columns
                  (union-all [paths]
-                            (-> edges
-                                (r/inner-join paths :p [:and [:= :src :p/dest] [:<> :dest [:all :p/path]]] [])
-                                (r/extend :source :p/source)
-                                (r/extend :path [:array-cat :p/path [:array :dest]])
-
-                                (r/select [:source :dest :path]))))
+                            (-> paths
+                                (r/rename :dest :paths-dest)
+                                (r/rename :path :paths-path)
+                                (r/inner-join edges :e [:and [:= :paths-dest :e/src] [:!= :e/dest [:all :paths-path]]] [])
+                                (r/extend :dest :e/dest)
+                                (r/extend :path [:array-cat :paths-path [:array :e/dest]])
+                                (r/select [:src :dest :path]))))
           res (select! *env* paths)]
       (fact
-       res => [#:edges{:path [1 2], :source 1, :dest 2}
-               #:edges{:path [2 3], :source 2, :dest 3}
-               #:edges{:path [2 4], :source 2, :dest 4}
-               #:edges{:path [3 4], :source 3, :dest 4}
-               #:edges{:path [4 1], :source 4, :dest 1}
-               #:edges{:path [3 5], :source 3, :dest 5}
-               #:edges{:path [4 1 2], :source 4, :dest 2}
-               #:edges{:path [1 2 3], :source 1, :dest 3}
-               #:edges{:path [1 2 4], :source 1, :dest 4}
-               #:edges{:path [2 3 4], :source 2, :dest 4}
-               #:edges{:path [2 3 5], :source 2, :dest 5}
-               #:edges{:path [2 4 1], :source 2, :dest 1}
-               #:edges{:path [3 4 1], :source 3, :dest 1}
-               #:edges{:path [3 4 1 2], :source 3, :dest 2}
-               #:edges{:path [4 1 2 3], :source 4, :dest 3}
-               #:edges{:path [1 2 3 4], :source 1, :dest 4}
-               #:edges{:path [1 2 3 5], :source 1, :dest 5}
-               #:edges{:path [2 3 4 1], :source 2, :dest 1}
-               #:edges{:path [4 1 2 3 5], :source 4, :dest 5}]))))
+       res => [#:edges{:path [1 2], :src 1, :dest 2}
+               #:edges{:path [2 3], :src 2, :dest 3}
+               #:edges{:path [2 4], :src 2, :dest 4}
+               #:edges{:path [3 4], :src 3, :dest 4}
+               #:edges{:path [4 1], :src 4, :dest 1}
+               #:edges{:path [3 5], :src 3, :dest 5}
+               #:edges{:path [4 1 2], :src 4, :dest 2}
+               #:edges{:path [1 2 3], :src 1, :dest 3}
+               #:edges{:path [1 2 4], :src 1, :dest 4}
+               #:edges{:path [2 3 4], :src 2, :dest 4}
+               #:edges{:path [2 3 5], :src 2, :dest 5}
+               #:edges{:path [2 4 1], :src 2, :dest 1}
+               #:edges{:path [3 4 1], :src 3, :dest 1}
+               #:edges{:path [3 4 1 2], :src 3, :dest 2}
+               #:edges{:path [4 1 2 3], :src 4, :dest 3}
+               #:edges{:path [1 2 3 4], :src 1, :dest 4}
+               #:edges{:path [1 2 3 5], :src 1, :dest 5}
+               #:edges{:path [2 3 4 1], :src 2, :dest 1}
+               #:edges{:path [4 1 2 3 5], :src 4, :dest 5}]))))
+
+(deftest recursive-query-3
+  ;; Examples from https://www.ibm.com/docs/en/i/7.3?topic=statement-using-recursive-queries
+  (testing "Search depth first"
+    (let [{:keys [flights]} *env*
+          destinations-cte (-> (r/as-cte
+                                (-> flights
+                                    (r/extend :connections 0)
+                                    (r/rename :price :cost)
+                                    (r/select [:departure :arrival :connections :cost])
+                                    (r/where [:= :departure "Chicago"]))
+                                (union-all [destinations]
+                                           (-> destinations
+                                               (r/rename :cost :destinations-cost)
+                                               (r/rename :arrival :destinations-arrival)
+                                               (r/rename :connections :destinations-connections)
+                                               (r/inner-join flights :flights [:= :destinations-arrival :flights/departure] [])
+                                               (r/extend :cost ["+" :flights/price :destinations-cost])
+                                               (r/extend :arrival :flights/arrival)
+                                               (r/extend :connections ["+" :destinations-connections 1])
+                                               (r/select [:departure :arrival :connections :cost]))))
+                               (r/cte-search-depth-first :arrival :ordcol))
+          query (-> destinations-cte
+                    (r/order-by [:ordcol]))
+          res (select! *env* query)]
+      (fact
+       res => [#:flights{:departure "Chicago", :arrival "Frankfurt", :cost 480, :connections 0}
+               #:flights{:departure "Chicago", :arrival "Beijing", :cost 960, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Moscow", :cost 1060, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Tokyo", :cost 1740, :connections 2}
+               #:flights{:departure "Chicago", :arrival "Hawaii", :cost 2070, :connections 3}
+               #:flights{:departure "Chicago", :arrival "Vienna", :cost 680, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Miami", :cost 300, :connections 0}
+               #:flights{:departure "Chicago", :arrival "Lima", :cost 830, :connections 1}])))
+
+  (testing "Search breadth first"
+    (let [{:keys [flights]} *env*
+          destinations-cte (-> (r/as-cte
+                                (-> flights
+                                    (r/extend :connections 0)
+                                    (r/rename :price :cost)
+                                    (r/select [:departure :arrival :connections :cost])
+                                    (r/where [:= :departure "Chicago"]))
+                                (union-all [destinations]
+                                           (-> destinations
+                                               (r/rename :cost :destinations-cost)
+                                               (r/rename :arrival :destinations-arrival)
+                                               (r/rename :connections :destinations-connections)
+                                               (r/inner-join flights :flights [:= :destinations-arrival :flights/departure] [])
+                                               (r/extend :cost ["+" :flights/price :destinations-cost])
+                                               (r/extend :arrival :flights/arrival)
+                                               (r/extend :connections ["+" :destinations-connections 1])
+                                               (r/select [:departure :arrival :connections :cost]))))
+                               (r/cte-search-breadth-first :arrival :ordcol))
+          query (-> destinations-cte
+                    (r/order-by [:ordcol]))
+          res (select! *env* query)]
+      (fact
+       res => [#:flights{:departure "Chicago", :arrival "Frankfurt", :cost 480, :connections 0}
+               #:flights{:departure "Chicago", :arrival "Miami", :cost 300, :connections 0}
+               #:flights{:departure "Chicago", :arrival "Beijing", :cost 960, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Lima", :cost 830, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Moscow", :cost 1060, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Vienna", :cost 680, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Tokyo", :cost 1740, :connections 2}
+               #:flights{:departure "Chicago", :arrival "Hawaii", :cost 2070, :connections 3}])))
+
+  (testing "Cycle"
+    (jdbc/with-transaction [tx (env/get-db *env*)]
+      (let [env (env/with-db *env* tx)
+            {:keys [flights]} env
+            _ (insert! env (-> flights r/->insertable) {:departure "Cairo" :arrival "Paris" :carrier "Euro Air" :flight-number "1134" :price 440})
+            destinations-cte (-> (r/as-cte
+                                  (-> flights
+                                      (r/extend :connections 1)
+                                      (r/rename :price :cost)
+                                      (r/extend :itinerary [:concat :departure " " :arrival])
+                                      (r/select [:departure :arrival :connections :cost :itinerary])
+                                      (r/where [:= :departure "New York"]))
+                                  (union-all [destinations]
+                                             (-> destinations
+                                                 (r/rename :arrival :destinations-arrival)
+                                                 (r/rename :itinerary :destinations-itinerary)
+                                                 (r/rename :connections :destinations-connections)
+                                                 (r/inner-join flights :flights [:= :destinations-arrival :flights/departure] [])
+                                                 (r/extend :connections ["+" :destinations-connections 1])
+                                                 (r/extend :itinerary [:concat :destinations-itinerary " " :flights/arrival])
+                                                 (r/extend :arrival :flights/arrival)
+                                                 (r/select [:departure :arrival :connections :cost :itinerary]))))
+                                 (r/cte-cycle :arrival :cyclic-data :path 1 0))
+            query (-> destinations-cte
+                      (r/select [:departure :arrival :connections :cost :itinerary :cyclic-data]))
+            res (select! env query)]
+        (fact
+         res => [#:flights{:departure "New York", :arrival "Paris", :cyclic-data 0, :cost 400, :connections 1, :itinerary "New York Paris"}
+                 #:flights{:departure "New York", :arrival "London", :cyclic-data 0, :cost 350, :connections 1, :itinerary "New York London"}
+                 #:flights{:departure "New York", :arrival "Los Angeles", :cyclic-data 0, :cost 330, :connections 1, :itinerary "New York Los Angeles"}
+                 #:flights{:departure "New York", :arrival "Athens", :cyclic-data 0, :cost 350, :connections 2, :itinerary "New York London Athens"}
+                 #:flights{:departure "New York", :arrival "Madrid", :cyclic-data 0, :cost 400, :connections 2, :itinerary "New York Paris Madrid"}
+                 #:flights{:departure "New York", :arrival "Cairo", :cyclic-data 0, :cost 400, :connections 2, :itinerary "New York Paris Cairo"}
+                 #:flights{:departure "New York", :arrival "Rome", :cyclic-data 0, :cost 400, :connections 2, :itinerary "New York Paris Rome"}
+                 #:flights{:departure "New York", :arrival "Tokyo", :cyclic-data 0, :cost 330, :connections 2, :itinerary "New York Los Angeles Tokyo"}
+                 #:flights{:departure "New York", :arrival "Nicosia", :cyclic-data 0, :cost 350, :connections 3, :itinerary "New York London Athens Nicosia"}
+                 #:flights{:departure "New York", :arrival "Hawaii", :cyclic-data 0, :cost 330, :connections 3, :itinerary "New York Los Angeles Tokyo Hawaii"}
+                 #:flights{:departure "New York", :arrival "Paris", :cyclic-data 1, :cost 400, :connections 3, :itinerary "New York Paris Cairo Paris"}]))
+      (.rollback tx))))

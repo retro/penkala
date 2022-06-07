@@ -107,6 +107,9 @@
       (:computed :aggregate)
       (compile-value-expression acc (if (seq col-path) (assoc env ::join-path-prefix col-path) env) rel (:value-expression col-def)))))
 
+(defmethod compile-value-expression :bare-column-name [acc env rel [_ {:keys [id] :as col}]]
+  (update acc :query conj (q (get-in rel [:columns id :name]))))
+
 (defmethod compile-value-expression :value [acc _ _ [_ val]]
   (-> acc
       (update :query conj "?")
@@ -841,20 +844,67 @@
     (update acc :query conj (str "FETCH NEXT" spc fetch spc "ROWS ONLY"))
     acc))
 
+(defn with-cte-search [env acc cte]
+  (if-let [cte-search (get-in cte [:spec :cte :search])]
+    (let [{:keys [type column virtual-column]} cte-search
+          {col-query :query col-params :params} (compile-value-expression empty-acc env cte column)
+          {vcol-query :query vcol-params :params} (compile-value-expression empty-acc env cte virtual-column)
+          params (into col-params vcol-params)
+          query ["SEARCH" ({:depth-first "DEPTH" :breadth-first "BREADTH"} type) "FIRST BY"
+                 (join-space col-query) "SET" (join-space vcol-query)]]
+      (-> acc
+          (update :params into params)
+          (update :query conj (join-space query))))
+    acc))
+
+(defn with-cte-cycle [env acc cte]
+  (if-let [cte-cycle (get-in cte [:spec :cte :cycle])]
+    (let [{:keys [type column virtual-column using-virtual-column to-value default-value]} cte-cycle
+          {col-query :query col-params :params} (compile-value-expression empty-acc env cte column)
+          {vcol-query :query vcol-params :params} (compile-value-expression empty-acc env cte virtual-column)
+          {uvcol-query :query uvcol-params :params} (compile-value-expression empty-acc env cte using-virtual-column)
+          {tv-query :query tv-params :params} (compile-value-expression empty-acc env cte to-value)
+          {dv-query :query dv-params :params} (compile-value-expression empty-acc env cte default-value)
+
+          params (vec (concat col-params vcol-params uvcol-params tv-params dv-params))
+          query (cond-> ["CYCLE" (join-space col-query) "SET" (join-space vcol-query)]
+                  (seq tv-query) (into ["TO" (join-space tv-query)])
+                  (seq dv-query) (into ["DEFAULT" (join-space dv-query)])
+                  true (into ["USING" (join-space uvcol-query)]))]
+      (-> acc
+          (update :params into params)
+          (update :query conj (join-space query))))
+    acc))
+
 (defn with-cte [env acc cte]
   (let [cte-query (get-in cte [:spec :query])
+        materialized? (:materialized? cte-query)
         [query & params] (cte-query env)
         cte-query (cond-> []
                     (get-in cte [:spec :cte :recursive?])
                     (into ["RECURSIVE"])
 
                     true
-                    (into [(q (get-in cte [:spec :name])) "AS" (wrap-parens query)])
+                    (into [(q (get-in cte [:spec :name])) "AS"])
+
+                    (true? materialized?)
+                    (conj "MATERIALIZED")
+
+                    (false? materialized?)
+                    (conj "NOT MATERIALIZED")
 
                     true
-                    join-space)]
+                    (conj (wrap-parens query))
+
+                    true
+                    join-space)
+        {:keys [query params]} (as-> empty-acc $
+                                 (update $ :query conj cte-query)
+                                 (update $ :params into params)
+                                 (with-cte-search env $ cte)
+                                 (with-cte-cycle env $ cte))]
     (-> acc
-        (update :query conj cte-query)
+        (update :query conj (join-space query))
         (update :params into params))))
 
 (defn sort-ctes [ctes-acc]
