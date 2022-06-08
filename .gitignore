@@ -11,3 +11,4 @@
 .hg/
 .lsp
 .clj-kondo/.cache
+pom.xml.asc
