@@ -1,0 +1,1 @@
+ :hooks {:analyze-call {com.verybigthings.penkala.relation/as-cte com.verybigthings.penkala.relation/as-cte}}

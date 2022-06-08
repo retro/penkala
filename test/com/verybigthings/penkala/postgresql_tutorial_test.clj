@@ -3,13 +3,15 @@
    https://www.postgresqltutorial.com/. You can follow the tutorials
    and see how are queries implemented with Penkala"
   (:require [clojure.test :refer [deftest testing use-fixtures]]
-            [com.verybigthings.penkala.next-jdbc :refer [insert! select!]]
+            [com.verybigthings.penkala.next-jdbc :refer [insert! select! select-one!]]
             [com.verybigthings.penkala.relation :as r]
             [com.verybigthings.penkala.test-helpers :as th :refer [*env*]]
-            [testit.core :refer [fact facts => =in=>]]))
+            [testit.core :refer [fact facts => =in=>]]
+            [com.verybigthings.penkala.env :as env]
+            [next.jdbc :as jdbc]))
 
 ;;(use-fixtures :each (partial th/reset-db-fixture "pagila"))
-(use-fixtures :once th/pagila-db-fixture th/instrument-penkala)
+(use-fixtures :once th/pagila-db-fixture)
 
 (defn date? [val]
   (= java.time.LocalDate (class val)))
@@ -2419,16 +2421,16 @@
           res (-> (select! *env* rental)
                   (subvec 0 10))]
       (fact
-       res =in=> [#:rental{:day 24.0, :month 5.0, :rental-count 2, :year 2005.0}
-                  #:rental{:day 25.0, :month 5.0, :rental-count 136, :year 2005.0}
-                  #:rental{:day 26.0, :month 5.0, :rental-count 175, :year 2005.0}
-                  #:rental{:day 27.0, :month 5.0, :rental-count 168, :year 2005.0}
-                  #:rental{:day 28.0, :month 5.0, :rental-count 194, :year 2005.0}
-                  #:rental{:day 29.0, :month 5.0, :rental-count 156, :year 2005.0}
-                  #:rental{:day 30.0, :month 5.0, :rental-count 155, :year 2005.0}
-                  #:rental{:day 31.0, :month 5.0, :rental-count 170, :year 2005.0}
-                  #:rental{:day nil, :month 5.0, :rental-count 1156, :year 2005.0}
-                  #:rental{:day 14.0, :month 6.0, :rental-count 2, :year 2005.0}]))))
+       res =in=> [#:rental{:day 24M, :month 5M, :rental-count 2, :year 2005M}
+                  #:rental{:day 25M, :month 5M, :rental-count 136, :year 2005M}
+                  #:rental{:day 26M, :month 5M, :rental-count 175, :year 2005M}
+                  #:rental{:day 27M, :month 5M, :rental-count 168, :year 2005M}
+                  #:rental{:day 28M, :month 5M, :rental-count 194, :year 2005M}
+                  #:rental{:day 29M, :month 5M, :rental-count 156, :year 2005M}
+                  #:rental{:day 30M, :month 5M, :rental-count 155, :year 2005M}
+                  #:rental{:day 31M, :month 5M, :rental-count 170, :year 2005M}
+                  #:rental{:day nil, :month 5M, :rental-count 1156, :year 2005M}
+                  #:rental{:day 14M, :month 6M, :rental-count 2, :year 2005M}]))))
 
 (deftest subquery
   ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-subquery/
@@ -2691,3 +2693,292 @@
                   #:customer{:last-name "GRESHAM", :first-name "ALEX"}
                   #:customer{:last-name "FENNELL", :first-name "ALEXANDER"}
                   #:customer{:last-name "CASILLAS", :first-name "ALFRED"}]))))
+
+(deftest cte
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-cte/
+  (testing "A simple PostgreSQL CTE example"
+    (let [{:keys [film]} *env*
+          film-cte (r/as-cte
+                    (-> film
+                        (r/extend :length-description
+                          [:case
+                           [:when [:< :length [:cast 30 "int"]]
+                            "Short"]
+                           [:when [:< :length [:cast 90 "int"]]
+                            "Medium"]
+                           "Long"])
+                        (r/select [:film-id :title :length-description])))
+          query (-> film-cte
+                    (r/where [:= :length-description "Long"])
+                    (r/order-by [:title]))
+          res (-> (select! *env* query)
+                  (subvec 0 10))]
+      (fact
+       res =in=> [#:film{:length-description "Long", :title "AFFAIR PREJUDICE", :film-id 4}
+                  #:film{:length-description "Long", :title "AFRICAN EGG", :film-id 5}
+                  #:film{:length-description "Long", :title "AGENT TRUMAN", :film-id 6}
+                  #:film{:length-description "Long", :title "ALABAMA DEVIL", :film-id 9}
+                  #:film{:length-description "Long", :title "ALAMO VIDEOTAPE", :film-id 11}
+                  #:film{:length-description "Long", :title "ALASKA PHANTOM", :film-id 12}
+                  #:film{:length-description "Long", :title "ALI FOREVER", :film-id 13}
+                  #:film{:length-description "Long", :title "ALICE FANTASIA", :film-id 14}
+                  #:film{:length-description "Long", :title "ALLEY EVOLUTION", :film-id 16}
+                  #:film{:length-description "Long", :title "AMADEUS HOLY", :film-id 19}])))
+
+  (testing "Joining a CTE with a table example"
+    (let [{:keys [rental staff]} *env*
+          rental-cte (r/as-cte
+                      (-> rental
+                          (r/extend-with-aggregate :rental-count [:count :rental-id])
+                          (r/select [:staff-id :rental-count])
+                          (r/group-by [:staff-id])))
+          query (-> staff
+                    (r/select [:first-name :last-name :staff-id])
+                    (r/inner-join rental-cte :rental-cte [:using :staff-id]))
+          res  (select! *env* query)]
+      (fact
+       res =in=> [#:staff{:last-name "Hillyer",
+                          :first-name "Mike",
+                          :staff-id 1,
+                          :rental-cte [#:rental{:rental-count 8040, :staff-id 1}]}
+                  #:staff{:last-name "Stephens",
+                          :first-name "Jon",
+                          :staff-id 2,
+                          :rental-cte [#:rental{:rental-count 8004, :staff-id 2}]}])))
+
+  (testing "Using CTE with a window function example"
+    (let [{:keys [film]} *env*
+          film-cte (r/as-cte
+                    (-> film
+                        (r/extend-with-window :length-rank [:rank] [:rating] [[:length :desc]])
+                        (r/select [:title :rating :length :length-rank])))
+          query (-> film-cte
+                    (r/where [:= :length-rank 1])
+                    (r/order-by [:title])) ;; Add order-by for consistent test results
+          res (select! *env* query)]
+      (fact
+       res =in=> [#:film{:length-rank 1, :title "CHICAGO NORTH", :length 185, :rating "PG-13"}
+                  #:film{:length-rank 1, :title "CONTROL ANTHEM", :length 185, :rating "G"}
+                  #:film{:length-rank 1, :title "CRYSTAL BREAKING", :length 184, :rating "NC-17"}
+                  #:film{:length-rank 1, :title "DARN FORRESTER", :length 185, :rating "G"}
+                  #:film{:length-rank 1, :title "GANGS PRIDE", :length 185, :rating "PG-13"}
+                  #:film{:length-rank 1, :title "HOME PITY", :length 185, :rating "R"}
+                  #:film{:length-rank 1, :title "KING EVOLUTION", :length 184, :rating "NC-17"}
+                  #:film{:length-rank 1, :title "MUSCLE BRIGHT", :length 185, :rating "G"}
+                  #:film{:length-rank 1, :title "POND SEATTLE", :length 185, :rating "PG-13"}
+                  #:film{:length-rank 1, :title "SOLDIERS EVOLUTION", :length 185, :rating "R"}
+                  #:film{:length-rank 1, :title "SONS INTERVIEW", :length 184, :rating "NC-17"}
+                  #:film{:length-rank 1, :title "SORORITY QUEEN", :length 184, :rating "NC-17"}
+                  #:film{:length-rank 1, :title "SWEET BROTHERHOOD", :length 185, :rating "R"}
+                  #:film{:length-rank 1, :title "WORST BANGER", :length 185, :rating "PG"}]))))
+
+(deftest recursive-query
+  ;; https://www.postgresqltutorial.com/postgresql-tutorial/postgresql-recursive-query/
+  (let [{:keys [employees-2]} *env*
+        subordinates (r/as-cte
+                      (-> employees-2
+                          (r/where [:= :employee-id [:cast 2 "int"]]))
+                      (union [subordinates]
+                             (-> employees-2
+                                 (r/inner-join subordinates :subordinates [:= :manager-id :subordinates/employee-id] []))))
+        res (select! *env* subordinates)]
+    (fact
+     res =in=> [#:employees-2{:manager-id 1, :full-name "Megan Berry", :employee-id 2}
+                #:employees-2{:manager-id 2, :full-name "Bella Tucker", :employee-id 6}
+                #:employees-2{:manager-id 2, :full-name "Ryan Metcalfe", :employee-id 7}
+                #:employees-2{:manager-id 2, :full-name "Max Mills", :employee-id 8}
+                #:employees-2{:manager-id 2, :full-name "Benjamin Glover", :employee-id 9}
+                #:employees-2{:manager-id 7, :full-name "Piers Paige", :employee-id 16}
+                #:employees-2{:manager-id 7, :full-name "Ryan Henderson", :employee-id 17}
+                #:employees-2{:manager-id 8, :full-name "Frank Tucker", :employee-id 18}
+                #:employees-2{:manager-id 8, :full-name "Nathan Ferguson", :employee-id 19}
+                #:employees-2{:manager-id 8, :full-name "Kevin Rampling", :employee-id 20}])))
+
+(deftest recursive-query-2
+  ;; https://towardsdatascience.com/recursive-sql-queries-with-postgresql-87e2a453f1b
+  (testing "Degrees of separation"
+    (let [{:keys [employees-3]} *env*
+          employees-3-cte (r/as-cte
+                           (-> employees-3
+                               (r/extend :degree 0)
+                               (r/select [:id :degree])
+                               (r/where [:= :id 1]))
+                           (union-all [rec]
+                                      (-> employees-3
+                                          (r/inner-join rec :rec [:= :manager-id :rec/id] [])
+                                          (r/extend :degree ["+" :rec/degree 1])
+                                          (r/select [:id :degree]))))
+          query (-> employees-3
+                    (r/inner-join employees-3-cte :rec [:= :id :rec/id] [])
+                    (r/extend :separation [:concat "John and " :name " are separated by "
+                                           [:to-char :rec/degree "9"] " degrees of separation"])
+                    (r/where [:= :name "George"]))
+          res (select-one! *env* query)]
+      (fact
+       res => #:employees-3{:name "George", :manager-id 5, :separation "John and George are separated by  3 degrees of separation", :id 4, :salary 1800, :job "Developer"})))
+
+  (testing "Progression"
+    (let [{:keys [employees-3]} *env*
+          employees-3-cte (r/as-cte
+                           (-> employees-3
+                               (r/extend :level 0)
+                               (r/select [:id :manager-id :job :level])
+                               (r/where [:= :id 4]))
+                           (union-all [rec]
+                                      (-> employees-3
+                                          (r/inner-join rec :rec [:= :id :rec/manager-id] [])
+                                          (r/extend :level ["+" :rec/level 1])
+                                          (r/select [:id :manager-id :job :level]))))
+          query (-> employees-3-cte
+                    (r/extend-with-aggregate :path [:string-agg :job " > " [:order-by [:level :asc]]])
+                    (r/select [:path]))
+          res (select-one! *env* query)]
+      (fact
+       res => #:employees-3{:path "Developer > Manager > VP > CEO"})))
+
+  (testing "Recursion on Graphs"
+    (let [{:keys [edges]} *env*
+          paths (r/as-cte
+                 (-> edges
+                     (r/extend :path [:array :src :dest])
+                     (r/select [:src :dest :path]))
+                 ;; This query requires a bit more ceremony than in raw SQL because Penkala 
+                 ;; generates projection automatically, so it's not possible to use positional
+                 ;; columns in projection. Since we want to both reference :dest and :path columns
+                 ;; from the accumulated query and compute different values in their place, 
+                 ;; we need to rename them and then extend relation with new versions of these columns
+                 (union-all [paths]
+                            (-> paths
+                                (r/rename :dest :paths-dest)
+                                (r/rename :path :paths-path)
+                                (r/inner-join edges :e [:and [:= :paths-dest :e/src] [:!= :e/dest [:all :paths-path]]] [])
+                                (r/extend :dest :e/dest)
+                                (r/extend :path [:array-cat :paths-path [:array :e/dest]])
+                                (r/select [:src :dest :path]))))
+          res (select! *env* paths)]
+      (fact
+       res => [#:edges{:path [1 2], :src 1, :dest 2}
+               #:edges{:path [2 3], :src 2, :dest 3}
+               #:edges{:path [2 4], :src 2, :dest 4}
+               #:edges{:path [3 4], :src 3, :dest 4}
+               #:edges{:path [4 1], :src 4, :dest 1}
+               #:edges{:path [3 5], :src 3, :dest 5}
+               #:edges{:path [4 1 2], :src 4, :dest 2}
+               #:edges{:path [1 2 3], :src 1, :dest 3}
+               #:edges{:path [1 2 4], :src 1, :dest 4}
+               #:edges{:path [2 3 4], :src 2, :dest 4}
+               #:edges{:path [2 3 5], :src 2, :dest 5}
+               #:edges{:path [2 4 1], :src 2, :dest 1}
+               #:edges{:path [3 4 1], :src 3, :dest 1}
+               #:edges{:path [3 4 1 2], :src 3, :dest 2}
+               #:edges{:path [4 1 2 3], :src 4, :dest 3}
+               #:edges{:path [1 2 3 4], :src 1, :dest 4}
+               #:edges{:path [1 2 3 5], :src 1, :dest 5}
+               #:edges{:path [2 3 4 1], :src 2, :dest 1}
+               #:edges{:path [4 1 2 3 5], :src 4, :dest 5}]))))
+
+(deftest recursive-query-3
+  ;; Examples from https://www.ibm.com/docs/en/i/7.3?topic=statement-using-recursive-queries
+  (testing "Search depth first"
+    (let [{:keys [flights]} *env*
+          destinations-cte (-> (r/as-cte
+                                (-> flights
+                                    (r/extend :connections 0)
+                                    (r/rename :price :cost)
+                                    (r/select [:departure :arrival :connections :cost])
+                                    (r/where [:= :departure "Chicago"]))
+                                (union-all [destinations]
+                                           (-> destinations
+                                               (r/rename :cost :destinations-cost)
+                                               (r/rename :arrival :destinations-arrival)
+                                               (r/rename :connections :destinations-connections)
+                                               (r/inner-join flights :flights [:= :destinations-arrival :flights/departure] [])
+                                               (r/extend :cost ["+" :flights/price :destinations-cost])
+                                               (r/extend :arrival :flights/arrival)
+                                               (r/extend :connections ["+" :destinations-connections 1])
+                                               (r/select [:departure :arrival :connections :cost]))))
+                               (r/cte-search-depth-first :arrival :ordcol))
+          query (-> destinations-cte
+                    (r/order-by [:ordcol]))
+          res (select! *env* query)]
+      (fact
+       res => [#:flights{:departure "Chicago", :arrival "Frankfurt", :cost 480, :connections 0}
+               #:flights{:departure "Chicago", :arrival "Beijing", :cost 960, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Moscow", :cost 1060, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Tokyo", :cost 1740, :connections 2}
+               #:flights{:departure "Chicago", :arrival "Hawaii", :cost 2070, :connections 3}
+               #:flights{:departure "Chicago", :arrival "Vienna", :cost 680, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Miami", :cost 300, :connections 0}
+               #:flights{:departure "Chicago", :arrival "Lima", :cost 830, :connections 1}])))
+
+  (testing "Search breadth first"
+    (let [{:keys [flights]} *env*
+          destinations-cte (-> (r/as-cte
+                                (-> flights
+                                    (r/extend :connections 0)
+                                    (r/rename :price :cost)
+                                    (r/select [:departure :arrival :connections :cost])
+                                    (r/where [:= :departure "Chicago"]))
+                                (union-all [destinations]
+                                           (-> destinations
+                                               (r/rename :cost :destinations-cost)
+                                               (r/rename :arrival :destinations-arrival)
+                                               (r/rename :connections :destinations-connections)
+                                               (r/inner-join flights :flights [:= :destinations-arrival :flights/departure] [])
+                                               (r/extend :cost ["+" :flights/price :destinations-cost])
+                                               (r/extend :arrival :flights/arrival)
+                                               (r/extend :connections ["+" :destinations-connections 1])
+                                               (r/select [:departure :arrival :connections :cost]))))
+                               (r/cte-search-breadth-first :arrival :ordcol))
+          query (-> destinations-cte
+                    (r/order-by [:ordcol]))
+          res (select! *env* query)]
+      (fact
+       res => [#:flights{:departure "Chicago", :arrival "Frankfurt", :cost 480, :connections 0}
+               #:flights{:departure "Chicago", :arrival "Miami", :cost 300, :connections 0}
+               #:flights{:departure "Chicago", :arrival "Beijing", :cost 960, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Lima", :cost 830, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Moscow", :cost 1060, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Vienna", :cost 680, :connections 1}
+               #:flights{:departure "Chicago", :arrival "Tokyo", :cost 1740, :connections 2}
+               #:flights{:departure "Chicago", :arrival "Hawaii", :cost 2070, :connections 3}])))
+
+  (testing "Cycle"
+    (jdbc/with-transaction [tx (env/get-db *env*)]
+      (let [env (env/with-db *env* tx)
+            {:keys [flights]} env
+            _ (insert! env (-> flights r/->insertable) {:departure "Cairo" :arrival "Paris" :carrier "Euro Air" :flight-number "1134" :price 440})
+            destinations-cte (-> (r/as-cte
+                                  (-> flights
+                                      (r/extend :connections 1)
+                                      (r/rename :price :cost)
+                                      (r/extend :itinerary [:concat :departure " " :arrival])
+                                      (r/select [:departure :arrival :connections :cost :itinerary])
+                                      (r/where [:= :departure "New York"]))
+                                  (union-all [destinations]
+                                             (-> destinations
+                                                 (r/rename :arrival :destinations-arrival)
+                                                 (r/rename :itinerary :destinations-itinerary)
+                                                 (r/rename :connections :destinations-connections)
+                                                 (r/inner-join flights :flights [:= :destinations-arrival :flights/departure] [])
+                                                 (r/extend :connections ["+" :destinations-connections 1])
+                                                 (r/extend :itinerary [:concat :destinations-itinerary " " :flights/arrival])
+                                                 (r/extend :arrival :flights/arrival)
+                                                 (r/select [:departure :arrival :connections :cost :itinerary]))))
+                                 (r/cte-cycle :arrival :cyclic-data :path))
+            query (-> destinations-cte
+                      (r/select [:departure :arrival :connections :cost :itinerary :cyclic-data]))
+            res (select! env query)]
+        (fact
+         res => [#:flights{:departure "New York", :arrival "Paris", :cyclic-data false, :cost 400, :connections 1, :itinerary "New York Paris"}
+                 #:flights{:departure "New York", :arrival "London", :cyclic-data false, :cost 350, :connections 1, :itinerary "New York London"}
+                 #:flights{:departure "New York", :arrival "Los Angeles", :cyclic-data false, :cost 330, :connections 1, :itinerary "New York Los Angeles"}
+                 #:flights{:departure "New York", :arrival "Athens", :cyclic-data false, :cost 350, :connections 2, :itinerary "New York London Athens"}
+                 #:flights{:departure "New York", :arrival "Madrid", :cyclic-data false, :cost 400, :connections 2, :itinerary "New York Paris Madrid"}
+                 #:flights{:departure "New York", :arrival "Cairo", :cyclic-data false, :cost 400, :connections 2, :itinerary "New York Paris Cairo"}
+                 #:flights{:departure "New York", :arrival "Rome", :cyclic-data false, :cost 400, :connections 2, :itinerary "New York Paris Rome"}
+                 #:flights{:departure "New York", :arrival "Tokyo", :cyclic-data false, :cost 330, :connections 2, :itinerary "New York Los Angeles Tokyo"}
+                 #:flights{:departure "New York", :arrival "Nicosia", :cyclic-data false, :cost 350, :connections 3, :itinerary "New York London Athens Nicosia"}
+                 #:flights{:departure "New York", :arrival "Hawaii", :cyclic-data false, :cost 330, :connections 3, :itinerary "New York Los Angeles Tokyo Hawaii"}
+                 #:flights{:departure "New York", :arrival "Paris", :cyclic-data true, :cost 400, :connections 3, :itinerary "New York Paris Cairo Paris"}]))
+      (.rollback tx))))

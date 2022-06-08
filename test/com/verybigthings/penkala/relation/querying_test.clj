@@ -463,3 +463,15 @@
         res (select! *env* query)]
 
     (is (= #{1 2} (->> res (map :products/id) set)))))
+
+(deftest it-can-extend-with-value
+  (let [products (-> *env*
+                     :products
+                     (r/extend :some-value 1)
+                     (r/select [:id :some-value]))
+        res (select! *env* products)]
+    (is (= [{:products/id 1, :products/some-value 1}
+            {:products/id 2, :products/some-value 1}
+            {:products/id 3, :products/some-value 1}
+            {:products/id 4, :products/some-value 1}]
+           res))))
