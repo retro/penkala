@@ -1595,28 +1595,20 @@
 (defn cte-search-breadth-first [rel col-name virtual-col-name]
   (cte-search rel :breadth-first col-name virtual-col-name))
 
-(defn cte-cycle
-  ([rel col-name virtual-col-name using-virtual-col-name]
-   (cte-cycle rel col-name virtual-col-name using-virtual-col-name nil nil))
-  ([rel col-name virtual-col-name using-virtual-col-name to-val default-val]
-   (throw-when-not-cte! rel)
-   (let [id (get-in rel [:aliases->ids col-name])]
-     (when (nil? id)
-       (throw (ex-info-missing-column rel col-name)))
-     (let [rel' (-> rel
-                    (cte-extend-virtual virtual-col-name)
-                    (cte-extend-virtual using-virtual-col-name))
-           _ (println "$$$" to-val default-val)
-           resolved-col [:bare-column-name (resolve-column rel' col-name)]
-           resolved-virtual-col [:bare-column-name (resolve-column rel' virtual-col-name)]
-           resolved-using-virtual-col [:bare-column-name (resolve-column rel' using-virtual-col-name)]]
-       (assoc-in rel' [:spec :cte :cycle] {:column resolved-col
-                                           :virtual-column resolved-virtual-col
-                                           :using-virtual-column resolved-using-virtual-col
-                                           :to-value (when (and to-val default-val)
-                                                       (process-value-expression rel (s/conform ::value-expression (->Wrapped :literal to-val))))
-                                           :default-value (when (and to-val default-val)
-                                                            (process-value-expression rel (s/conform ::value-expression (->Wrapped :literal default-val))))})))))
+(defn cte-cycle [rel col-name virtual-col-name using-virtual-col-name]
+  (throw-when-not-cte! rel)
+  (let [id (get-in rel [:aliases->ids col-name])]
+    (when (nil? id)
+      (throw (ex-info-missing-column rel col-name)))
+    (let [rel' (-> rel
+                   (cte-extend-virtual virtual-col-name)
+                   (cte-extend-virtual using-virtual-col-name))
+          resolved-col [:bare-column-name (resolve-column rel' col-name)]
+          resolved-virtual-col [:bare-column-name (resolve-column rel' virtual-col-name)]
+          resolved-using-virtual-col [:bare-column-name (resolve-column rel' using-virtual-col-name)]]
+      (assoc-in rel' [:spec :cte :cycle] {:column resolved-col
+                                          :virtual-column resolved-virtual-col
+                                          :using-virtual-column resolved-using-virtual-col}))))
 
 (defn cte-materialized [rel is-materialized]
   (throw-when-not-cte! rel)

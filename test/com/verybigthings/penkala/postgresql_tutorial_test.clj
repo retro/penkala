@@ -11,7 +11,7 @@
             [next.jdbc :as jdbc]))
 
 ;;(use-fixtures :each (partial th/reset-db-fixture "pagila"))
-(use-fixtures :once th/pagila-db-fixture #_th/instrument-penkala)
+(use-fixtures :once th/pagila-db-fixture)
 
 (defn date? [val]
   (= java.time.LocalDate (class val)))
@@ -2965,20 +2965,20 @@
                                                  (r/extend :itinerary [:concat :destinations-itinerary " " :flights/arrival])
                                                  (r/extend :arrival :flights/arrival)
                                                  (r/select [:departure :arrival :connections :cost :itinerary]))))
-                                 (r/cte-cycle :arrival :cyclic-data :path 1 0))
+                                 (r/cte-cycle :arrival :cyclic-data :path))
             query (-> destinations-cte
                       (r/select [:departure :arrival :connections :cost :itinerary :cyclic-data]))
             res (select! env query)]
         (fact
-         res => [#:flights{:departure "New York", :arrival "Paris", :cyclic-data 0, :cost 400, :connections 1, :itinerary "New York Paris"}
-                 #:flights{:departure "New York", :arrival "London", :cyclic-data 0, :cost 350, :connections 1, :itinerary "New York London"}
-                 #:flights{:departure "New York", :arrival "Los Angeles", :cyclic-data 0, :cost 330, :connections 1, :itinerary "New York Los Angeles"}
-                 #:flights{:departure "New York", :arrival "Athens", :cyclic-data 0, :cost 350, :connections 2, :itinerary "New York London Athens"}
-                 #:flights{:departure "New York", :arrival "Madrid", :cyclic-data 0, :cost 400, :connections 2, :itinerary "New York Paris Madrid"}
-                 #:flights{:departure "New York", :arrival "Cairo", :cyclic-data 0, :cost 400, :connections 2, :itinerary "New York Paris Cairo"}
-                 #:flights{:departure "New York", :arrival "Rome", :cyclic-data 0, :cost 400, :connections 2, :itinerary "New York Paris Rome"}
-                 #:flights{:departure "New York", :arrival "Tokyo", :cyclic-data 0, :cost 330, :connections 2, :itinerary "New York Los Angeles Tokyo"}
-                 #:flights{:departure "New York", :arrival "Nicosia", :cyclic-data 0, :cost 350, :connections 3, :itinerary "New York London Athens Nicosia"}
-                 #:flights{:departure "New York", :arrival "Hawaii", :cyclic-data 0, :cost 330, :connections 3, :itinerary "New York Los Angeles Tokyo Hawaii"}
-                 #:flights{:departure "New York", :arrival "Paris", :cyclic-data 1, :cost 400, :connections 3, :itinerary "New York Paris Cairo Paris"}]))
+         res => [#:flights{:departure "New York", :arrival "Paris", :cyclic-data false, :cost 400, :connections 1, :itinerary "New York Paris"}
+                 #:flights{:departure "New York", :arrival "London", :cyclic-data false, :cost 350, :connections 1, :itinerary "New York London"}
+                 #:flights{:departure "New York", :arrival "Los Angeles", :cyclic-data false, :cost 330, :connections 1, :itinerary "New York Los Angeles"}
+                 #:flights{:departure "New York", :arrival "Athens", :cyclic-data false, :cost 350, :connections 2, :itinerary "New York London Athens"}
+                 #:flights{:departure "New York", :arrival "Madrid", :cyclic-data false, :cost 400, :connections 2, :itinerary "New York Paris Madrid"}
+                 #:flights{:departure "New York", :arrival "Cairo", :cyclic-data false, :cost 400, :connections 2, :itinerary "New York Paris Cairo"}
+                 #:flights{:departure "New York", :arrival "Rome", :cyclic-data false, :cost 400, :connections 2, :itinerary "New York Paris Rome"}
+                 #:flights{:departure "New York", :arrival "Tokyo", :cyclic-data false, :cost 330, :connections 2, :itinerary "New York Los Angeles Tokyo"}
+                 #:flights{:departure "New York", :arrival "Nicosia", :cyclic-data false, :cost 350, :connections 3, :itinerary "New York London Athens Nicosia"}
+                 #:flights{:departure "New York", :arrival "Hawaii", :cyclic-data false, :cost 330, :connections 3, :itinerary "New York Los Angeles Tokyo Hawaii"}
+                 #:flights{:departure "New York", :arrival "Paris", :cyclic-data true, :cost 400, :connections 3, :itinerary "New York Paris Cairo Paris"}]))
       (.rollback tx))))

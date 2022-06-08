@@ -859,18 +859,12 @@
 
 (defn with-cte-cycle [env acc cte]
   (if-let [cte-cycle (get-in cte [:spec :cte :cycle])]
-    (let [{:keys [type column virtual-column using-virtual-column to-value default-value]} cte-cycle
+    (let [{:keys [type column virtual-column using-virtual-column]} cte-cycle
           {col-query :query col-params :params} (compile-value-expression empty-acc env cte column)
           {vcol-query :query vcol-params :params} (compile-value-expression empty-acc env cte virtual-column)
           {uvcol-query :query uvcol-params :params} (compile-value-expression empty-acc env cte using-virtual-column)
-          {tv-query :query tv-params :params} (compile-value-expression empty-acc env cte to-value)
-          {dv-query :query dv-params :params} (compile-value-expression empty-acc env cte default-value)
-
-          params (vec (concat col-params vcol-params uvcol-params tv-params dv-params))
-          query (cond-> ["CYCLE" (join-space col-query) "SET" (join-space vcol-query)]
-                  (seq tv-query) (into ["TO" (join-space tv-query)])
-                  (seq dv-query) (into ["DEFAULT" (join-space dv-query)])
-                  true (into ["USING" (join-space uvcol-query)]))]
+          params (vec (concat col-params vcol-params uvcol-params))
+          query ["CYCLE" (join-space col-query) "SET" (join-space vcol-query) "USING" (join-space uvcol-query)]]
       (-> acc
           (update :params into params)
           (update :query conj (join-space query))))
