@@ -16,17 +16,18 @@
       (jdbc/execute! db-uri [(str "DROP SCHEMA " (:schema_name s) " CASCADE")]))
     (jdbc/execute! db-uri [sql])))
 
-(defn reset-db-fixture [db-preset f]
-  (reset-db db-preset)
-  (binding [*env* (get-env db-uri)]
-    (f)))
-
-(defn pagila-db-fixture [f]
-  (binding [*env* (get-env "jdbc:postgresql://localhost:5432/penkala_pagila?user=postgres")]
-    (f)))
-
 (defn instrument-penkala [f]
   (let [syms (-> 'com.verybigthings.penkala.relation st/enumerate-namespace st/instrumentable-syms)]
     (st/instrument syms)
     (f)
     (st/unstrument syms)))
+
+(defn reset-db-fixture [db-preset f]
+  (reset-db db-preset)
+  (binding [*env* (get-env db-uri)]
+    (instrument-penkala f)))
+
+(defn pagila-db-fixture [f]
+  (binding [*env* (get-env "jdbc:postgresql://localhost:5432/penkala_pagila?user=postgres")]
+    (instrument-penkala f)))
+

@@ -1,7 +1,6 @@
 (ns com.verybigthings.penkala.decomposition
   (:require [clojure.spec.alpha :as s]
             [com.verybigthings.penkala.util :refer [as-vec path-prefix-join col->alias]]
-            [camel-snake-kebab.core :refer [->kebab-case-string]]
             [clojure.set :as set]
             [clojure.string :as str]))
 
@@ -33,10 +32,18 @@
    :single keyword?
    :multiple (s/coll-of keyword?)))
 
+(s/def ::namespace
+  (s/or :string string? :keyword keyword? :boolean boolean?))
+
+(s/def ::keep-duplicates?
+  boolean?)
+
+(s/def ::keep-nil?
+  boolean?)
+
 (s/def ::schema
   (s/keys
-   :req-un [::pk ::schema]
-   :opt-un [::decompose-to]))
+   :opt-un [::decompose-to ::pk ::schema ::keep-duplicates? ::keep-nil? ::namespace]))
 
 (declare process-schema)
 
@@ -170,9 +177,9 @@
 
 (s/fdef decompose
   :args (s/cat
-         :schema any?
-         :data (s/or :map map? :coll sequential?))
-  :ret (s/or :map? map? :coll sequential?))
+         :schema ::schema
+         :data (s/or :map map? :coll sequential? :nil nil?))
+  :ret (s/or :map? map? :coll sequential? :nil nil?))
 
 (defn get-prefixed-col-name [path-prefix col-name]
   (->> (conj path-prefix (col->alias col-name))

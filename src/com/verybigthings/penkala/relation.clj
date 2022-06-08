@@ -246,6 +246,12 @@
 (s/def ::deletable
   #(satisfies? IDeletable %))
 
+(s/def ::cte
+  (s/and ::relation #(get-in % [:spec :cte])))
+
+(s/def ::recursive-cte
+  (s/and ::cte #(get-in % [:spec :cte :recursive?])))
+
 (s/def ::wrapped-column
   #(and (= Wrapped (type %)) (= :column (:subject-type %))))
 
@@ -316,8 +322,13 @@
 (s/def ::updates
   (s/map-of keyword? ::value-expression))
 
-(s/def ::inserts
+(s/def ::insert
   (s/map-of keyword? ::value-expression))
+
+(s/def ::inserts
+  (s/or
+   :collection (s/coll-of ::insert)
+   :single ::insert))
 
 (s/def ::orders
   (s/coll-of ::order))
@@ -378,6 +389,24 @@
               :cube ::cube
               :rollup ::rollup
               :column-identifier ::column-identifier)))
+
+(s/def ::as-cte
+  (s/cat
+   :rel any?
+   :recursive (s/?
+               (s/and list?
+                      (s/cat
+                       :type (s/and
+                              simple-symbol?
+                              (s/or
+                               :union #(= % 'union)
+                               :union-all #(= % 'union-all)))
+                       :binding (s/and
+                                 vector?
+                                 #(= 1 (count %))
+                                 (s/cat
+                                  :cte-sym simple-symbol?))
+                       :rel any?)))))
 
 (defn resolve-column [rel node]
   (let [column           (if (keyword? node) node (:subject node))
@@ -1025,9 +1054,9 @@
 
 (s/fdef where
   :args (s/cat
-         :rel ::relation
+         :rel #(satisfies? IWhere %)
          :where-expression ::value-expression)
-  :ret ::relation)
+  :ret #(satisfies? IWhere %))
 
 (defn or-where
   "Or where operation. If there's already a where clause set, this clause will be joined with OR"
@@ -1036,9 +1065,9 @@
 
 (s/fdef or-where
   :args (s/cat
-         :rel ::relation
+         :rel #(satisfies? IWhere %)
          :where-expression ::value-expression)
-  :ret ::relation)
+  :ret #(satisfies? IWhere %))
 
 (defn having
   "And having operation. If there's already a having clause set, this clause will be joined with AND"
@@ -1174,7 +1203,7 @@
   :args (s/cat
          :rel ::relation
          :col-name keyword?
-         :agg-expression ::function-call)
+         :agg-expression ::value-expression)
   :ret ::relation)
 
 (defn extend-with-window
@@ -1191,7 +1220,9 @@
          :rel ::relation
          :col-name keyword?
          :window-expression ::function-call
-         :partitions (s/? ::column-list)
+         :partitions (s/? (s/or
+                           :nil nil?
+                           :column-list ::column-list))
          :orders (s/? ::orders))
   :ret ::relation)
 
@@ -1232,7 +1263,9 @@
 (s/fdef returning
   :args (s/cat
          :rel ::writeable
-         :projection ::column-list)
+         :projection (s/or
+                      :nil nil?
+                      :column-list ::column-list))
   :ret ::writeable)
 
 (defn distinct
@@ -1341,15 +1374,23 @@
      columns)))
 
 (s/fdef with-default-columns
-  :args (s/cat :rel ::relation)
-  :ret ::relation)
+  :args (s/cat :rel (s/or
+                     :relation ::relation
+                     :writeable ::writeable))
+  :ret (s/or
+        :relation ::relation
+        :writeable ::writeable))
 
 (defn with-default-projection [rel]
   (assoc rel :projection (set (keys (:aliases->ids rel)))))
 
 (s/fdef with-default-projection
-  :args (s/cat :rel ::relation)
-  :ret ::relation)
+  :args (s/cat :rel (s/or
+                     :relation ::relation
+                     :writeable ::writeable))
+  :ret (s/or
+        :relation ::relation
+        :writeable ::writeable))
 
 (defn with-default-pk [rel]
   (let [pk         (as-vec (get-in rel [:spec :pk]))
@@ -1357,8 +1398,12 @@
     (assoc rel :pk (mapv #(get-in rel [:aliases->ids %]) pk-aliases))))
 
 (s/fdef with-default-pk
-  :args (s/cat :rel ::relation)
-  :ret ::relation)
+  :args (s/cat :rel (s/or
+                     :relation ::relation
+                     :writeable ::writeable))
+  :ret (s/or
+        :relation ::relation
+        :writeable ::writeable))
 
 (defn with-pk [rel pk-cols]
   (let [pk (reduce
@@ -1372,8 +1417,13 @@
     (assoc rel :pk pk)))
 
 (s/fdef with-pk
-  :args (s/cat :rel ::relation :pk (s/coll-of keyword? :kind vector?))
-  :ret ::relation)
+  :args (s/cat :rel (s/or
+                     :relation ::relation
+                     :writeable ::writeable)
+               :pk (s/coll-of keyword? :kind vector?))
+  :ret (s/or
+        :relation ::relation
+        :writeable ::writeable))
 
 (defn with-updates [updatable updates]
   (-with-updates updatable updates))
@@ -1408,14 +1458,16 @@
   :ret ::insertable)
 
 (defn on-conflict-do-nothing
-  ([insertable] (on-conflict-do-nothing insertable nil nil))
-  ([insertable conflicts] (on-conflict-do-nothing insertable conflicts nil))
+  ([insertable]
+   (-on-conflict-do insertable :nothing nil nil nil))
+  ([insertable conflicts]
+   (-on-conflict-do insertable :nothing conflicts nil nil))
   ([insertable conflicts where-expression]
    (-on-conflict-do insertable :nothing conflicts nil where-expression)))
 
 (s/fdef on-conflict-do-nothing
   :args (s/cat :insertable ::insertable
-               :conflict-target ::conflict-target
+               :conflict-target (s/? ::conflict-target)
                :where-expression (s/? ::value-expression))
   :ret ::insertable)
 
@@ -1478,24 +1530,6 @@
   :args (s/cat :relation ::relation)
   :ret ::deletable)
 
-(s/def ::as-cte
-  (s/cat
-   :rel any?
-   :recursive (s/?
-               (s/and list?
-                      (s/cat
-                       :type (s/and
-                              simple-symbol?
-                              (s/or
-                               :union #(= % 'union)
-                               :union-all #(= % 'union-all)))
-                       :binding (s/and
-                                 vector?
-                                 #(= 1 (count %))
-                                 (s/cat
-                                  :cte-sym simple-symbol?))
-                       :rel any?)))))
-
 (defn rel->cte [cte-name rel]
   (let [query (fn [env]
                 (cond
@@ -1516,6 +1550,14 @@
         with-default-projection
         with-default-pk)))
 
+(s/fdef rel->cte
+  :args (s/cat
+         :cte-name string?
+         :rel (s/or
+               :relation ::relation
+               :writeable ::writeable))
+  :ret ::cte)
+
 (defn cte->recursive-cte [cte-name recursive-type cte-rel recursive-rel]
   ;; Converts initial CTE to the recursive version by creating UNION or UNION ALL
   ;; between the initial CTE and recursive CTE part.
@@ -1530,6 +1572,16 @@
         (assoc-in [:spec :query] recursive-query)
         (assoc-in [:spec :cte :recursive?] true))))
 
+(s/fdef cte->recursive-cte
+  :args (s/cat
+         :cte-name string?
+         :recursive-type (s/or
+                          :union #(= :union %)
+                          :union-all #(= :union-all %))
+         :cte-rel ::cte
+         :recursive-rel ::relation)
+  :ret ::cte)
+
 (defn cte->base-cte [cte]
   ;; Converts the initial CTE to the base CTE that can be used by 
   ;; by the recursive part as the binding. Ensures that this CTE 
@@ -1537,6 +1589,11 @@
   (-> cte
       (update :spec dissoc :cte)
       (assoc-in [:spec :query] (constantly [(get-relation-name cte)]))))
+
+(s/fdef cte->base-cte
+  :args (s/cat
+         :cte ::cte)
+  :ret ::relation)
 
 (defmacro as-cte [& args]
   (s/assert ::as-cte args)
@@ -1588,12 +1645,34 @@
       (assoc-in rel' [:spec :cte :search] {:type search-type
                                            :column resolved-col
                                            :virtual-column resolved-virtual-col}))))
+(s/fdef cte-search
+  :args (s/cat
+         :rel ::recursive-cte
+         :search-type (s/or :depth-first #(= % :depth-first)
+                            :breadth-first #(= % :breadth-first))
+         :col-name keyword?
+         :virtual-col-name keyword?)
+  :ret ::cte)
 
 (defn cte-search-depth-first [rel col-name virtual-col-name]
   (cte-search rel :depth-first col-name virtual-col-name))
 
+(s/fdef cte-search-depth-first
+  :args (s/cat
+         :rel ::recursive-cte
+         :col-name keyword?
+         :virtual-col-name keyword?)
+  :ret ::cte)
+
 (defn cte-search-breadth-first [rel col-name virtual-col-name]
   (cte-search rel :breadth-first col-name virtual-col-name))
+
+(s/fdef cte-search-breadth-first
+  :args (s/cat
+         :rel ::recursive-cte
+         :col-name keyword?
+         :virtual-col-name keyword?)
+  :ret ::cte)
 
 (defn cte-cycle [rel col-name virtual-col-name using-virtual-col-name]
   (throw-when-not-cte! rel)
@@ -1610,6 +1689,20 @@
                                           :virtual-column resolved-virtual-col
                                           :using-virtual-column resolved-using-virtual-col}))))
 
+(s/fdef cte-cycle
+  :args (s/cat
+         :rel ::recursive-cte
+         :col-name keyword?
+         :virtual-col-name keyword?
+         :using-virtual-col-name keyword?)
+  :ret ::cte)
+
 (defn cte-materialized [rel is-materialized]
   (throw-when-not-cte! rel)
   (assoc-in rel [:spec :cte :materialized?] is-materialized))
+
+(s/fdef cte-materialized
+  :args (s/cat
+         :rel ::cte
+         :is-materialized (s/or :nil nil? :boolean boolean?))
+  :ret ::cte)
