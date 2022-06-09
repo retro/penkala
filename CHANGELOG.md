@@ -1,5 +1,10 @@
 # Change Log
 
+## [0.9.1] - 2022-06-09
+
+- Fix regression where updating to nil value was generating incorrect SQL
+- Implement support for explicit ON CONFLICT update WHERE clause
+
 ## [0.9.0] - 2022-06-08
 
 - Implement CTEs
