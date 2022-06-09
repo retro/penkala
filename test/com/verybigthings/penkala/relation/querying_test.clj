@@ -475,3 +475,14 @@
             {:products/id 3, :products/some-value 1}
             {:products/id 4, :products/some-value 1}]
            res))))
+
+(deftest it-can-use-within-group-order-by
+  (let [series-1-20 (:series-1-20 *env*)
+        query (-> series-1-20
+                  (r/extend :max [:unnest [:within-group [:percentile-disc [:array 0.25, 0.5, 0.75, 1.0]] [:order-by :val]]])
+                  (r/select [:max]))
+        res (select! *env* query)]
+    (is (= [{:series-1-20/max 5}
+            {:series-1-20/max 10}
+            {:series-1-20/max 15}
+            {:series-1-20/max 20}] res))))

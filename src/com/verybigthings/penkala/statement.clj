@@ -351,6 +351,16 @@
         (update :params into params)
         (update :query conj (str "EXTRACT" (wrap-parens (->SCREAMING_SNAKE_CASE_STRING field) spc "FROM" spc (join-space query)))))))
 
+(defmethod compile-value-expression :within-group [acc env rel [_ {:keys [agg-vex order-by-function-argument]}]]
+  (let [{agg-vex-query :query agg-vex-params :params}
+        (compile-value-expression empty-acc env rel agg-vex)
+        {order-by-function-argument-query :query order-by-function-argument-params :params}
+        (compile-value-expression empty-acc env rel order-by-function-argument)]
+    (-> acc
+        (update :params into agg-vex-params)
+        (update :params into order-by-function-argument-params)
+        (update :query conj (join-space [(join-space agg-vex-query) "WITHIN GROUP" (-> order-by-function-argument-query join-space wrap-parens)])))))
+
 (declare compile-order-by)
 
 (defmethod compile-value-expression :order-by-function-argument [acc env rel [_ {:keys [order-by]}]]

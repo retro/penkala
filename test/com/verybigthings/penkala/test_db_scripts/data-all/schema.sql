@@ -73,3 +73,5 @@ insert into uuid_docs(body) values ('{"things": "stuff"}');
 
 
 create materialized view mv_orders as select * from orders;
+
+CREATE TABLE series_1_20 AS SELECT generate_series(1,20) AS val;
