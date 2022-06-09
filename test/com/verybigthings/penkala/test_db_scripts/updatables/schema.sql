@@ -81,3 +81,11 @@ CREATE TABLE things_2 (
 
 CREATE UNIQUE INDEX my_stuff_my_name_idx ON things_2 (my_stuff, lower(my_name));
 
+CREATE TABLE resources (
+  id serial PRIMARY KEY,
+  title text NOT NULL,
+  deleted_at timestamp
+);
+
+CREATE UNIQUE INDEX resources_title_index ON resources (title);
+
