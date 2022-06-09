@@ -88,6 +88,17 @@
                        :array-field ["one" "two"]}
            (dissoc res :normal-pk/id)))))
 
+(deftest it-inserts-nil
+  (let [normal-pk     (:normal-pk *env*)
+        ins-normal-pk (r/->insertable normal-pk)
+        res           (insert! *env* ins-normal-pk {:field-1 "kappa" :field-2 nil})]
+    (is (= #:normal-pk{:field-1 "kappa"
+                       :json-field nil
+                       :field-2 nil
+                       :array-of-json nil
+                       :array-field nil}
+           (dissoc res :normal-pk/id)))))
+
 (deftest it-inserts-empty-array-fields
   (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (r/->insertable normal-pk)
@@ -295,3 +306,19 @@
                         :my-name "NAME12"
                         :id 1}
              res)))))
+
+#_(deftest it-can-handle-conflicts-with-update-3
+    (let [resources (:resources *env*)
+          insertable (-> resources r/->insertable)
+          _ (println "\n\n")
+          inserted (insert! *env* insertable {:title "title"})
+          _ (println "--------------------------------------------------------------")
+          insertable-2 (-> insertable
+                           (r/on-conflict-do-update
+                            [:title]
+                            {:deleted-at nil}
+                            [:is-not-null :deleted-at])
+                           (r/returning [:id]))
+          inserted-2 (insert! *env* insertable-2 {:title "title"})]
+      (println "INSERTED" inserted inserted-2)
+      (is false)))

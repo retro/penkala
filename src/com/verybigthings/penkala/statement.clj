@@ -373,6 +373,11 @@
         (update :params into params)
         (update :query conj (str "ORDER BY" spc (join-comma query))))))
 
+(defn compile-updatable-value [acc env rel value]
+  (if (nil? value)
+    {:query ["NULL"]}
+    (compile-value-expression acc env rel value)))
+
 (defn with-updatable-from [acc env updatable]
   (if-let [from (:joins updatable)]
     (let [{:keys [query params]}
@@ -399,7 +404,7 @@
          (fn [acc' col col-update]
            (let [col-id   (get-in updatable [:aliases->ids col])
                  col-name (get-in updatable [:columns col-id :name])
-                 {:keys [query params]} (compile-value-expression empty-acc env updatable col-update)]
+                 {:keys [query params]} (compile-updatable-value empty-acc env updatable col-update)]
              (-> acc'
                  (update :query conj (join-space (into [(q col-name) "="] query)))
                  (update :params into params))))
@@ -427,7 +432,7 @@
              (let [col-id   (get-in insertable [:aliases->ids col])
                    col-name (get-in insertable [:columns col-id :name])
                    {:keys [query params]} (binding [*use-column-db-name-for* (set/union *use-column-db-name-for* #{"EXCLUDED"})]
-                                            (compile-value-expression empty-acc env insertable col-update))]
+                                            (compile-updatable-value empty-acc env insertable col-update))]
                (-> acc'
                    (update :query conj (join-space (into [(q col-name) "="] query)))
                    (update :params into params))))

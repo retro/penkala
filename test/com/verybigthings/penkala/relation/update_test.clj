@@ -23,6 +23,27 @@
                         :id 1}]
            res))))
 
+(deftest it-updates-field-to-a-null-value
+  (let [normal-pk (:normal-pk *env*)
+        upd-normal-pk (-> (r/->updatable normal-pk)
+                          (r/where [:= :id 1]))
+        res (update! *env* upd-normal-pk {:field-1 "zeta" :field-2 "field-2"})]
+    (is (= [#:normal-pk{:field-1 "zeta"
+                        :json-field nil
+                        :field-2 "field-2"
+                        :array-of-json nil
+                        :array-field nil
+                        :id 1}]
+           res))
+    (let [res-2 (update! *env* upd-normal-pk {:field-2 nil})]
+      (is (= [#:normal-pk{:field-1 "zeta"
+                          :json-field nil
+                          :field-2 nil
+                          :array-of-json nil
+                          :array-field nil
+                          :id 1}]
+             res-2)))))
+
 (deftest it-updates-multiple-columns
   (let [normal-pk (:normal-pk *env*)
         upd-normal-pk (-> (r/->updatable normal-pk)

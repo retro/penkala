@@ -158,6 +158,10 @@
        (first res)
        res))))
 
+(defn log [val]
+  (println "LOGGING:" val)
+  val)
+
 (defn insert!
   ([env insertable inserts] (insert! env insertable inserts {}))
   ([env insertable inserts decomposition-schema-overrides]
@@ -167,12 +171,14 @@
                            insertable)
                          (r/with-inserts inserts))
          sqlvec      (r/get-insert-query insertable' env)]
+     ;;(-> sqlvec first prettify-sql println)
      (if (:projection insertable')
        (let [;; If we're using insertable with on-conflict-do-update, an implicit join to the "excluded"
              ;; table is created. This will remove it so it's not picked up by the decomposition schema
              ;; inference.
              decomposition-schema (d/infer-schema (dissoc insertable' :joins) decomposition-schema-overrides)
              res                  (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
+                                       ;;(log)
                                        (d/decompose decomposition-schema))]
          (if (map? inserts) (first res) res))
        (jdbc/execute-one! db sqlvec default-next-jdbc-options)))))
@@ -187,6 +193,7 @@
                           updatable)
                         (r/with-updates updates))
          sqlvec     (r/get-update-query updatable' env params)]
+     ;;(-> sqlvec first prettify-sql println)
      (if (:projection updatable')
        (let [;; Updatable might have a from table set which will be reusing the joins map
              ;; and we don't want the infer function to pick it up, so we remove it here
