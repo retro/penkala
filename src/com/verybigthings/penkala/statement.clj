@@ -425,8 +425,9 @@
     acc))
 
 (defn with-on-conflict-updates [acc env insertable]
-  (if-let [updates (get-in insertable [:on-conflict :updates])]
-    (let [{:keys [query params]}
+  (if-let [on-conflict-update (get-in insertable [:on-conflict :update])]
+    (let [{:keys [updates where]} on-conflict-update
+          {update-query :query update-params :params}
           (reduce-kv
            (fn [acc' col col-update]
              (let [col-id   (get-in insertable [:aliases->ids col])
@@ -437,10 +438,13 @@
                    (update :query conj (join-space (into [(q col-name) "="] query)))
                    (update :params into params))))
            empty-acc
-           updates)]
+           updates)
+          {where-query :query where-params :params} (when where (compile-value-expression empty-acc env insertable where))]
       (-> acc
-          (update :query into ["SET" (join-comma query)])
-          (update :params into params)))
+          (update :query into ["SET" (join-comma update-query)])
+          (update :query #(if where-query (into % ["WHERE" (join-space where-query)]) %))
+          (update :params into update-params)
+          (update :params into where-params)))
     acc))
 
 (defn with-on-conflict-conflict-target [acc env insertable]

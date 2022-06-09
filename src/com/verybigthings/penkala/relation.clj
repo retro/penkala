@@ -246,6 +246,10 @@
 (s/def ::deletable
   #(satisfies? IDeletable %))
 
+(s/def ::on-conflict-updates
+  (s/and #(satisfies? IWhere %)
+         (s/keys :req-un [::updates])))
+
 (s/def ::cte
   (s/and ::relation #(get-in % [:spec :cte])))
 
@@ -678,6 +682,18 @@
    {}
    inserts))
 
+(defn process-on-conflict-updates [rel {:keys [updates where] :as on-conflict-updates}]
+  (when on-conflict-updates
+    (let [updates' (->> updates
+                        (s/conform ::updates)
+                        (filter (fn [[k _]] (contains? (:aliases->ids rel) k)))
+                        (map (fn [[k v]] [k (process-value-expression rel v)]))
+                        (into {}))
+          where' (when where
+                   (process-value-expression rel (s/conform ::value-expression where)))]
+      {:updates updates'
+       :where where'})))
+
 (defrecord Insertable [spec]
   IWriteable
   (-returning [this projection]
@@ -688,21 +704,16 @@
                               (process-inserts inserts)
                               (mapv process-inserts inserts))]
       (assoc this :inserts processed-inserts)))
-  (-on-conflict-do [this action conflict-target updates where-expression]
+  (-on-conflict-do [this action conflict-target on-conflict-updates where-expression]
     (let [excluded                  (assoc-in this [:spec :name] "EXCLUDED")
           this'                     (dissoc this :joins)
-          this''                    (if updates (assoc this' :joins {:excluded {:relation excluded}}) this')
+          this''                    (if on-conflict-updates (assoc this' :joins {:excluded {:relation excluded}}) this')
           processed-conflict-target (when conflict-target
                                       (->> conflict-target
                                            (s/conform ::conflict-target)
                                            (process-conflict-target this')
                                            process-on-conflict-column-references))
-          processed-updates         (when updates
-                                      (->> updates
-                                           (s/conform ::updates)
-                                           (filter (fn [[k _]] (contains? (:aliases->ids this'') k)))
-                                           (map (fn [[k v]] [k (process-value-expression this'' v)]))
-                                           (into {})))
+          processed-updates         (process-on-conflict-updates this'' on-conflict-updates)
           where                     (when where-expression
                                       (-> this'
                                           (process-value-expression (s/conform ::value-expression where-expression))
@@ -716,7 +727,7 @@
 
       (assoc this'' :on-conflict {:action action
                                   :conflict-target processed-conflict-target
-                                  :updates processed-updates
+                                  :update processed-updates
                                   :where where}))))
 
 (defrecord Updatable [spec]
@@ -757,6 +768,17 @@
   IDeletable
   (-using [this using-rel using-alias]
     (assoc-in this [:joins using-alias] {:relation using-rel})))
+
+(defrecord OnConflictUpdates []
+  IWhere
+  (-where [{:keys [where] :as this} where-expression]
+    (if (seq where)
+      (assoc this :where [:and where where-expression])
+      (assoc this :where where-expression)))
+  (-or-where [{:keys [where] :as this} where-expression]
+    (if (seq where)
+      (assoc this :where [:or where where-expression])
+      (assoc this :where where-expression))))
 
 (defn ensure-join-alias-on-projection [join-alias join-projection]
   (let [join-alias-name (name join-alias)]
@@ -1471,10 +1493,14 @@
                :where-expression (s/? ::value-expression))
   :ret ::insertable)
 
+(declare ->on-conflict-updates)
+
 (defn on-conflict-do-update
   ([insertable conflicts updates] (on-conflict-do-update insertable conflicts updates nil))
   ([insertable conflicts updates where-expression]
-   (-on-conflict-do insertable :update conflicts updates where-expression)))
+   (let [is-on-conflict-updates (s/valid? ::on-conflict-updates updates)
+         updates' (if is-on-conflict-updates updates (->on-conflict-updates updates))]
+     (-on-conflict-do insertable :update conflicts updates' where-expression))))
 
 (s/fdef on-conflict-do-update
   :args (s/cat :insertable ::insertable
@@ -1520,6 +1546,14 @@
 (s/fdef ->updatable
   :args (s/cat :relation ::relation)
   :ret ::updatable)
+
+(defn ->on-conflict-updates [updates]
+  (-> (->OnConflictUpdates)
+      (assoc :updates updates)))
+
+(s/fdef ->on-conflict-updates
+  :args (s/cat :updates map?)
+  :ret ::on-conflict-updates)
 
 (defn ->deletable
   "Converts a relation into an \"deletable\" record which can be used to compose a delete query"

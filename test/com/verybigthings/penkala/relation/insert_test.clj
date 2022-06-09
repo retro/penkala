@@ -307,18 +307,16 @@
                         :id 1}
              res)))))
 
-#_(deftest it-can-handle-conflicts-with-update-3
-    (let [resources (:resources *env*)
-          insertable (-> resources r/->insertable)
-          _ (println "\n\n")
-          inserted (insert! *env* insertable {:title "title"})
-          _ (println "--------------------------------------------------------------")
-          insertable-2 (-> insertable
-                           (r/on-conflict-do-update
-                            [:title]
-                            {:deleted-at nil}
-                            [:is-not-null :deleted-at])
-                           (r/returning [:id]))
-          inserted-2 (insert! *env* insertable-2 {:title "title"})]
-      (println "INSERTED" inserted inserted-2)
-      (is false)))
+(deftest it-can-handle-conflicts-with-explicit-on-conflict-updates
+  (let [resources (:resources *env*)
+        insertable (-> resources r/->insertable)
+        inserted (insert! *env* insertable {:title "title"})
+        insertable-2 (-> insertable
+                         (r/on-conflict-do-update
+                          [:title]
+                          (-> {:deleted-at nil}
+                              r/->on-conflict-updates
+                              (r/where [:is-not-null :deleted-at])))
+                         (r/returning [:id]))
+        inserted-2 (insert! *env* insertable-2 {:title "title"})]
+    (is nil? inserted-2)))
