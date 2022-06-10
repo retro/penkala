@@ -34,6 +34,7 @@
   (-extend-with-window [this col-name window-expression partitions orders])
   (-rename [this prev-col-name next-col-name])
   (-select [this projection])
+  (-select-all-but [this projection])
   (-distinct [this distinct-expression])
   (-union [this other-rel])
   (-union-all [this other-rel])
@@ -43,7 +44,8 @@
   (-with-parent [this parent]))
 
 (defprotocol IWriteable
-  (-returning [this projection]))
+  (-returning [this projection])
+  (-returning-all-but [this projection]))
 
 (defprotocol IInsertable
   (-with-inserts [this inserts])
@@ -662,6 +664,11 @@
        :columns rel1-cols
        :query query})))
 
+(defn -all-but [rel column-list]
+  (let [processed-column-list (process-projection rel (s/conform ::column-list column-list))
+        all-column-list (-> rel :aliases->ids keys set)]
+    (assoc rel :projection (set/difference all-column-list processed-column-list))))
+
 (declare spec->relation)
 
 (defn -writeable-returning [rel projection]
@@ -713,6 +720,8 @@
   IWriteable
   (-returning [this projection]
     (-writeable-returning this projection))
+  (-returning-all-but [this column-list]
+    (-all-but this column-list))
   IInsertable
   (-with-inserts [this inserts]
     (let [processed-inserts (if (map? inserts)
@@ -749,6 +758,8 @@
   IWriteable
   (-returning [this projection]
     (-writeable-returning this projection))
+  (-returning-all-but [this column-list]
+    (-all-but this column-list))
   IWhere
   (-where [this where-expression]
     (and-predicate this :where where-expression))
@@ -772,6 +783,8 @@
   IWriteable
   (-returning [this projection]
     (-writeable-returning this projection))
+  (-returning-all-but [this column-list]
+    (-all-but this column-list))
   IWhere
   (-where [this where-expression]
     (and-predicate this :where where-expression))
@@ -894,6 +907,8 @@
   (-select [this projection]
     (let [processed-projection (process-projection this (s/conform ::column-list projection))]
       (assoc this :projection processed-projection)))
+  (-select-all-but [this column-list]
+    (-all-but this column-list))
   (-distinct [this distinct-expression]
     (cond
       (boolean? distinct-expression)
@@ -1292,6 +1307,15 @@
          :projection ::column-list)
   :ret ::relation)
 
+(defn select-all-but [rel column-list]
+  (-select-all-but rel column-list))
+
+(s/fdef select-all-but
+  :args (s/cat
+         :rel ::relation
+         :column-list ::column-list)
+  :ret ::relation)
+
 (defn returning
   "Selects columns from the write operation (insert, update, delete)"
   [writeable projection]
@@ -1303,6 +1327,15 @@
          :projection (s/or
                       :nil nil?
                       :column-list ::column-list))
+  :ret ::writeable)
+
+(defn returning-all-but [writeable column-list]
+  (-returning-all-but writeable column-list))
+
+(s/fdef returning-all-but
+  :args (s/cat
+         :rel ::writeable
+         :column-list ::column-list)
   :ret ::writeable)
 
 (defn distinct
