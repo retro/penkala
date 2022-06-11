@@ -17,6 +17,15 @@
                        :array-field nil}
            (dissoc res :normal-pk/id)))))
 
+(deftest it-inserts-a-record-and-can-use-returning-all-but
+  (let [normal-pk     (:normal-pk *env*)
+        ins-normal-pk (-> normal-pk
+                          r/->insertable
+                          (r/returning-all-but [:json-field :field-2 :array-of-json :array-field]))
+        res           (insert! *env* ins-normal-pk {:field-1 "epsilon"})]
+    (is (= #:normal-pk{:field-1 "epsilon"}
+           (dissoc res :normal-pk/id)))))
+
 (deftest it-inserts-a-record-and-returns-map-with-custom-projection
   (let [normal-pk     (:normal-pk *env*)
         ins-normal-pk (-> (r/->insertable normal-pk)

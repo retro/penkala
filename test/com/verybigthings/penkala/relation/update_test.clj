@@ -23,6 +23,18 @@
                         :id 1}]
            res))))
 
+(deftest it-updates-and-can-use-returning-all-but
+  (let [normal-pk (:normal-pk *env*)
+        upd-normal-pk (-> (r/->updatable normal-pk)
+                          (r/returning-all-but [:json-field :field-2])
+                          (r/where [:= :id 1]))
+        res (update! *env* upd-normal-pk {:field-1 "zeta"})]
+    (is (= [#:normal-pk{:field-1 "zeta"
+                        :array-of-json nil
+                        :array-field nil
+                        :id 1}]
+           res))))
+
 (deftest it-updates-field-to-a-null-value
   (let [normal-pk (:normal-pk *env*)
         upd-normal-pk (-> (r/->updatable normal-pk)

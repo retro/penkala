@@ -24,6 +24,19 @@
                        :price 0.00M}]
            (mapv #(dissoc % :products/uuid) res)))))
 
+(deftest it-deletes-and-can-use-returning-all-but
+  (let [products (:products *env*)
+        del-products (-> (r/->deletable products)
+                         (r/returning-all-but [:string :tags])
+                         (r/where [:= :id 3]))
+        res (delete! *env* del-products)]
+    (is (= [#:products{:description nil
+                       :id 3
+                       :specs nil
+                       :case-name nil
+                       :price 0.00M}]
+           (mapv #(dissoc % :products/uuid) res)))))
+
 (deftest it-deletes-with-using
   (let [products (:products *env*)
         del-products (-> (r/->deletable products)

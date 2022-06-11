@@ -486,3 +486,15 @@
             {:series-1-20/max 10}
             {:series-1-20/max 15}
             {:series-1-20/max 20}] res))))
+
+(deftest it-can-select-allbut
+  (let [res (select-one! *env* (-> *env* :products
+                                   (r/extend :upper-name [:upper :name])
+                                   (r/select-all-but [:created-at :specs :tags])
+                                   (r/where [:= :id 1])))]
+    (is (= {:products/id 1
+            :products/upper-name "PRODUCT 1"
+            :products/description "Product 1 description",
+            :products/in-stock true,
+            :products/name "Product 1",
+            :products/price 12.00M} res))))
