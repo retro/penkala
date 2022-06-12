@@ -125,7 +125,9 @@
          (with-relations (concat tables views))))))
 
 (defn prettify-sql [sql]
-  (SqlFormatter/format sql))
+  (.. SqlFormatter
+      (of "postgresql")
+      (format sql)))
 
 (defn validate-relation [env rel]
   (let [rel' (get env rel)]

@@ -572,6 +572,50 @@
             (update :query conj (str "DISTINCT ON" (-> query join-comma wrap-parens))))))
     acc))
 
+(defn get-projection-for-embedded
+  ([rel]
+   (let [cursor (get-projection-for-embedded rel {:columns #{} :path-prefix []})]
+     (-> cursor :columns sort)))
+  ([{:keys [projection joins] :as rel} {:keys [columns path-prefix] :as cursor}]
+   (let [columns' (reduce
+                   (fn [acc alias]
+                     (let [col-id            (get-in rel [:aliases->ids alias])
+                           col-def           (get-in rel [:columns col-id])
+                           path-prefix-names (mapv name path-prefix)
+                           col-path          (conj path-prefix-names (name alias))
+                           col-alias         (if (seq path-prefix) (path-prefix-join col-path) (name alias))]
+                       (conj acc col-alias)))
+                   columns
+                   projection)]
+     (reduce-kv
+      (fn [acc alias {:keys [relation projection]}]
+        (get-projection-for-embedded (update relation :projection #(or projection %)) (update acc :path-prefix conj alias)))
+      (assoc cursor :columns columns')
+      (get-in rel [:joins])))))
+
+(defn compile-embedded [acc env rel embedded-relation]
+  (let [projection (get-projection-for-embedded embedded-relation)
+        embedded-id (-> "embedded-" gensym name)
+        data-relation-name (str "data-" embedded-id)
+        data-and-types-relation-name (str "data-and-types-" embedded-id)
+        [query & params] (binding [*scopes* (conj *scopes* {:env env :rel rel})]
+                           (format-select-query-without-params-resolution env embedded-relation))
+        fields (join-comma (map #(str "'" % "'") projection))
+        types (join-comma (map #(str "pg_typeof(" (q data-relation-name) "." (q %) ")::text") projection))
+        final-query ["SELECT json_build_object"
+                     (wrap-parens "'types', json_object"
+                                  (wrap-parens (str (q data-and-types-relation-name) "." (q "fields")) ","
+                                               (str (q data-and-types-relation-name) "." (q "types"))) ","
+                                  "'data', array_to_json" (wrap-parens (q data-and-types-relation-name) "." (q "data")))
+                     "FROM"
+                     (wrap-parens "SELECT array[" fields "] as fields, array [" types "] as types,"
+                                  "array_agg" (wrap-parens (q data-relation-name)) " as data FROM"
+                                  (wrap-parens query) spc (q data-relation-name) " GROUP BY fields, types")
+                     (q data-and-types-relation-name)]]
+    (-> acc
+        (update :params into params)
+        (update :query conj (join-space final-query)))))
+
 (defn with-projection
   ([acc env rel]
    (let [{:keys [query params]} (with-projection empty-acc env rel [])]
@@ -600,6 +644,12 @@
                              (-> acc
                                  (update :params into params)
                                  (update :query conj (str (join-space query) spc "AS" spc (q col-alias)))))
+
+                           (and (not (seq path-prefix)) (= :embed col-type))
+                           (let [{:keys [query params]} (compile-embedded empty-acc env rel (:relation col-def))]
+                             (-> acc
+                                 (update :params into params)
+                                 (update :query conj (str (-> query join-space wrap-parens) spc "AS" spc (q col-alias)))))
 
                            (and (not (seq path-prefix)) (= :window col-type))
                            (let [{:keys [value-expression partition-by order-by]} col-def

@@ -32,6 +32,7 @@
   (-extend [this col-name extend-expression])
   (-extend-with-aggregate [this col-name agg-expression])
   (-extend-with-window [this col-name window-expression partitions orders])
+  (-extend-with-embedded [this col-name relation])
   (-rename [this prev-col-name next-col-name])
   (-select [this projection])
   (-select-all-but [this projection])
@@ -904,6 +905,16 @@
           (assoc-in [:ids->aliases id] col-name)
           (assoc-in [:aliases->ids col-name] id)
           (update :projection conj col-name))))
+  (-extend-with-embedded [this col-name relation]
+    (when (contains? (:aliases->ids this) col-name)
+      (throw (ex-info (str "Column " col-name " already-exists") {:column col-name :relation this})))
+    (let [id (keyword (gensym "column-"))]
+      (-> this
+          (assoc-in [:columns id] {:type :embed
+                                   :relation relation})
+          (assoc-in [:ids->aliases id] col-name)
+          (assoc-in [:aliases->ids col-name] id)
+          (update :projection conj col-name))))
   (-select [this projection]
     (let [processed-projection (process-projection this (s/conform ::column-list projection))]
       (assoc this :projection processed-projection)))
@@ -1276,6 +1287,16 @@
                            :nil nil?
                            :column-list ::column-list))
          :orders (s/? ::orders))
+  :ret ::relation)
+
+(defn extend-with-embedded [rel col-name other-rel]
+  (-extend-with-embedded rel col-name other-rel))
+
+(s/fdef extend-with-embedded
+  :args (s/cat
+         :rel ::relation
+         :col-name keyword?
+         :other-rel ::relation)
   :ret ::relation)
 
 (defn rename

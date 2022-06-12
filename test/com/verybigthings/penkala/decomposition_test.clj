@@ -449,3 +449,36 @@
                                               (assoc val :child/val-upcased (-> val :child/val str/upper-case)))
                                  :schema {:id :children_id :val :children_val}}}}
             data)))))
+
+(deftest it-should-decompose-embedded-data
+  (let [data [{:beta
+               {:types
+                {:val "text", :j "jsonb", :id "integer", :alpha-id "integer"},
+                :data
+                [{:val "alpha three", :j nil, :id 3, :alpha-id 3}
+                 {:val "alpha three again", :j nil, :id 4, :alpha-id 3}]},
+               :id 3,
+               :val "three"}]
+        decomposed (d/decompose {:pk :id
+                                 :namespace :alpha
+                                 :schema {:id :id
+                                          :val :val
+                                          :beta {:embedded? true
+                                                 :pk :id
+                                                 :namespace :beta
+                                                 :schema {:id :id
+                                                          :val :val
+                                                          :j :j
+                                                          :alpha-id :alpha-id}}}}
+                                data)]
+    (is (= [{:alpha/id 3
+             :alpha/val "three"
+             :alpha/beta [{:beta/id 3
+                           :beta/alpha-id 3
+                           :beta/j nil
+                           :beta/val "alpha three"}
+                          {:beta/id 4
+                           :beta/alpha-id 3
+                           :beta/j nil
+                           :beta/val "alpha three again"}]}]
+           decomposed))))

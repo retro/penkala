@@ -4,6 +4,16 @@
             [clojure.set :as set]
             [clojure.string :as str]))
 
+(defmulti coerce-embedded-value (fn [pg-type _] pg-type))
+(defmethod coerce-embedded-value :default [_ value] value)
+
+(defn coerce-embedded-row [types row]
+  (->> row
+       (map (fn [[k value]]
+              (let [pg-type (get types (name k))]
+                [k (coerce-embedded-value pg-type value)])))
+       (into {})))
+
 (defrecord DecompositionSchema [pk decompose-to namespace columns])
 
 (s/def ::decompose-to #{:indexed-by-pk :coll :map :parent :omit})
@@ -41,9 +51,12 @@
 (s/def ::keep-nil?
   boolean?)
 
+(s/def ::embedded?
+  boolean?)
+
 (s/def ::schema
   (s/keys
-   :opt-un [::decompose-to ::pk ::schema ::keep-duplicates? ::keep-nil? ::namespace]))
+   :opt-un [::decompose-to ::pk ::schema ::keep-duplicates? ::keep-nil? ::embedded? ::namespace]))
 
 (declare process-schema)
 
@@ -55,7 +68,7 @@
                               (reduce-kv
                                (fn [acc k v]
                                  (if (map? v)
-                                   (assoc-in acc [:schemas (rename k)] (process-schema v))
+                                   (assoc-in acc [:schemas (rename k)] (process-schema k v))
                                    (assoc-in acc [:renames (rename k)] v)))
                                schema
                                columns))]
@@ -69,9 +82,21 @@
        schema
        columns))))
 
-(defn process-schema- [schema]
+(defn process-embedded-schema [schema column]
+  (cond
+    (and (:embedded? schema) column)
+    (-> schema (dissoc :embedded?) (assoc :embedded column))
+
+    (and (:embedded? schema) (not column))
+    (throw (ex-info "Root schema can't have :embedded? true" {:schema schema}))
+
+    :else
+    schema))
+
+(defn process-schema- [column schema]
   (-> schema
       process-schema-columns
+      (process-embedded-schema column)
       (update :pk as-vec)))
 
 (def process-schema (memoize process-schema-))
@@ -90,10 +115,20 @@
 (defn assoc-descendants [acc schemas idx row]
   (reduce-kv
    (fn [m k v]
-     (let [descendant (build (get acc k) v idx row)]
-       (if descendant
-         (assoc m k descendant)
-         m)))
+     (if-let [embedded (:embedded v)]
+       (let [{:keys [data types]} (get row embedded)
+             processed (reduce
+                        (fn [acc [idx row]]
+                          (->> row
+                               (coerce-embedded-row types)
+                               (build acc v idx)))
+                        {}
+                        (map-indexed (fn [idx v] [idx v]) (as-vec data)))]
+         (assoc acc k processed))
+       (let [descendant (build (get acc k) v idx row)]
+         (if descendant
+           (assoc m k descendant)
+           m))))
    acc
    schemas))
 
@@ -163,11 +198,13 @@
       (expand-transformed-coll transformed)
       transformed)))
 
+
+
 (defn decompose
   "Decomposes the data based on the schema."
   [schema data]
   (when (and (seq schema) (seq data))
-    (let [schema' (process-schema schema)
+    (let [schema' (process-schema nil schema)
           mapping (reduce
                    (fn [acc [idx row]]
                      (build acc schema' idx row))
@@ -280,12 +317,23 @@
                                           (assoc acc alias join-schema)))
                                       acc)))
                                 columns
-                                (:joins relation))]
+                                (:joins relation))
+           columns-with-joined-and-embeds (reduce
+                                           (fn [acc alias]
+                                             (let [col-id (get-in relation [:aliases->ids alias])
+                                                   {:keys [type relation]} (get-in relation [:columns col-id])]
+                                               (if (= :embed type)
+                                                 (let [overrides (get-in overrides [:schema alias])
+                                                       schema (infer-schema relation overrides [])]
+                                                   (assoc acc alias (assoc schema :embedded? true)))
+                                                 acc)))
+                                           columns-with-joined
+                                           (:projection relation))]
        (map->DecompositionSchema
         {:pk pk
          :decompose-to decompose-to
          :namespace namespace
-         :schema columns-with-joined
+         :schema columns-with-joined-and-embeds
          :processor processor
          :keep-nil? keep-nil?
          :keep-duplicates? keep-duplicates?})))))
