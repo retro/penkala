@@ -2987,27 +2987,22 @@
   (let [{:keys [film film-actor film-category actor category]} *env*
         film-actors (-> actor
                         (r/with-parent film)
+                        (r/inner-join film-actor :film-actor
+                                      [:and
+                                       [:= [:parent-scope :film-id] :film-actor/film-id]
+                                       [:= :actor-id :film-actor/actor-id]] [])
                         (r/select [:first-name :last-name]))
         film-categories (-> category
                             (r/with-parent film)
+                            (r/inner-join film-category :film-category
+                                          [:and
+                                           [:= [:parent-scope :film-id] :film-category/film-id]
+                                           [:= :category-id :film-category/category-id]] [])
                             (r/select [:name]))
 
-        actor-ids-by-film-id (-> film-actor
-                                 (r/with-parent film-actors)
-                                 (r/select [:actor-id])
-                                 ;; This is a many to many relation so we need to go two scopes "up"
-                                 ;; first to film-actors and then to film
-                                 (r/where [:= :film-id [:parent-scope [:parent-scope :film-id]]]))
-        category-ids-by-film-id (-> film-category
-                                    (r/with-parent film-categories)
-                                    (r/select [:category-id])
-                                    ;; This is a many to many relation so we need to go two scopes "up"
-                                    ;; first to film-actors and then to film
-                                    (r/where [:= :film-id [:parent-scope [:parent-scope :film-id]]]))
-
         films (-> film
-                  (r/extend-with-embedded :actors (r/where film-actors [:in :actor-id actor-ids-by-film-id]))
-                  (r/extend-with-embedded :categories (r/where film-categories [:in :category-id category-ids-by-film-id]))
+                  (r/extend-with-embedded :actors film-actors)
+                  (r/extend-with-embedded :categories film-categories)
                   (r/select [:title :actors :categories])
                   (r/order-by [:title])
                   (r/limit 5))
