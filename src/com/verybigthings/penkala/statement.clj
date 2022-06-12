@@ -599,7 +599,7 @@
         data-relation-name (str "data-" embedded-id)
         data-and-types-relation-name (str "data-and-types-" embedded-id)
         [query & params] (binding [*scopes* (conj *scopes* {:env env :rel rel})]
-                           (format-select-query-without-params-resolution env embedded-relation))
+                           (format-select-query-without-params-resolution env (assoc embedded-relation :parent rel)))
         fields (join-comma (map #(str "'" % "'") projection))
         types (join-comma (map #(str "pg_typeof(" (q data-relation-name) "." (q %) ")::text") projection))
         final-query ["SELECT json_build_object"

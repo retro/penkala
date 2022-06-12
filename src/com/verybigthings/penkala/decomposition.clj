@@ -124,7 +124,7 @@
                                (build acc v idx)))
                         {}
                         (map-indexed (fn [idx v] [idx v]) (as-vec data)))]
-         (assoc acc k processed))
+         (assoc m k processed))
        (let [descendant (build (get acc k) v idx row)]
          (if descendant
            (assoc m k descendant)

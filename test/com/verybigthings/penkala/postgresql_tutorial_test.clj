@@ -2982,3 +2982,78 @@
                  #:flights{:departure "New York", :arrival "Hawaii", :cyclic-data false, :cost 330, :connections 3, :itinerary "New York Los Angeles Tokyo Hawaii"}
                  #:flights{:departure "New York", :arrival "Paris", :cyclic-data true, :cost 400, :connections 3, :itinerary "New York Paris Cairo Paris"}]))
       (.rollback tx))))
+
+(deftest embedded-relations
+  (let [{:keys [film film-actor film-category actor category]} *env*
+        film-actors (-> actor
+                        (r/with-parent film)
+                        (r/select [:first-name :last-name]))
+        film-categories (-> category
+                            (r/with-parent film)
+                            (r/select [:name]))
+
+        actor-ids-by-film-id (-> film-actor
+                                 (r/with-parent film-actors)
+                                 (r/select [:actor-id])
+                                 ;; This is a many to many relation so we need to go two scopes "up"
+                                 ;; first to film-actors and then to film
+                                 (r/where [:= :film-id [:parent-scope [:parent-scope :film-id]]]))
+        category-ids-by-film-id (-> film-category
+                                    (r/with-parent film-categories)
+                                    (r/select [:category-id])
+                                    ;; This is a many to many relation so we need to go two scopes "up"
+                                    ;; first to film-actors and then to film
+                                    (r/where [:= :film-id [:parent-scope [:parent-scope :film-id]]]))
+
+        films (-> film
+                  (r/extend-with-embedded :actors (r/where film-actors [:in :actor-id actor-ids-by-film-id]))
+                  (r/extend-with-embedded :categories (r/where film-categories [:in :category-id category-ids-by-film-id]))
+                  (r/select [:title :actors :categories])
+                  (r/order-by [:title])
+                  (r/limit 5))
+        res (select! *env* films)]
+    (fact
+     res => [#:film{:title "ACADEMY DINOSAUR",
+                    :categories [#:category{:name "Documentary"}],
+                    :actors
+                    [#:actor{:last-name "GUINESS", :first-name "PENELOPE"}
+                     #:actor{:last-name "GABLE", :first-name "CHRISTIAN"}
+                     #:actor{:last-name "TRACY", :first-name "LUCILLE"}
+                     #:actor{:last-name "PECK", :first-name "SANDRA"}
+                     #:actor{:last-name "CAGE", :first-name "JOHNNY"}
+                     #:actor{:last-name "TEMPLE", :first-name "MENA"}
+                     #:actor{:last-name "NOLTE", :first-name "WARREN"}
+                     #:actor{:last-name "KILMER", :first-name "OPRAH"}
+                     #:actor{:last-name "DUKAKIS", :first-name "ROCK"}
+                     #:actor{:last-name "KEITEL", :first-name "MARY"}]}
+             #:film{:title "ACE GOLDFINGER",
+                    :categories [#:category{:name "Horror"}],
+                    :actors
+                    [#:actor{:last-name "FAWCETT", :first-name "BOB"}
+                     #:actor{:last-name "ZELLWEGER", :first-name "MINNIE"}
+                     #:actor{:last-name "GUINESS", :first-name "SEAN"}
+                     #:actor{:last-name "DEPP", :first-name "CHRIS"}]}
+             #:film{:title "ADAPTATION HOLES",
+                    :categories [#:category{:name "Documentary"}],
+                    :actors
+                    [#:actor{:last-name "WAHLBERG", :first-name "NICK"}
+                     #:actor{:last-name "FAWCETT", :first-name "BOB"}
+                     #:actor{:last-name "STREEP", :first-name "CAMERON"}
+                     #:actor{:last-name "JOHANSSON", :first-name "RAY"}
+                     #:actor{:last-name "DENCH", :first-name "JULIANNE"}]}
+             #:film{:title "AFFAIR PREJUDICE",
+                    :categories [#:category{:name "Horror"}],
+                    :actors
+                    [#:actor{:last-name "DEGENERES", :first-name "JODIE"}
+                     #:actor{:last-name "DAMON", :first-name "SCARLETT"}
+                     #:actor{:last-name "PESCI", :first-name "KENNETH"}
+                     #:actor{:last-name "WINSLET", :first-name "FAY"}
+                     #:actor{:last-name "KILMER", :first-name "OPRAH"}]}
+             #:film{:title "AFRICAN EGG",
+                    :categories [#:category{:name "Family"}],
+                    :actors
+                    [#:actor{:last-name "PHOENIX", :first-name "GARY"}
+                     #:actor{:last-name "TAUTOU", :first-name "DUSTIN"}
+                     #:actor{:last-name "LEIGH", :first-name "MATTHEW"}
+                     #:actor{:last-name "CARREY", :first-name "MATTHEW"}
+                     #:actor{:last-name "TEMPLE", :first-name "THORA"}]}])))
