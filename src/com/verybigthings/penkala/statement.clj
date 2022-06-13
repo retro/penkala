@@ -751,6 +751,9 @@
             (update :params into params)
             (update :query conj (join-space ["FROM" query "AS" (q (get-rel-alias-with-prefix env rel-name))]))))
 
+      (nil? (get-in rel [:spec :name]))
+      acc
+
       :else
       (let [rel-name (get-rel-alias rel)]
         (update acc :query into [(if (:only rel) "FROM ONLY" "FROM")
@@ -948,7 +951,7 @@
 
 (defn with-cte [env acc cte]
   (let [cte-query (get-in cte [:spec :query])
-        materialized? (:materialized? cte-query)
+        materialized? (get-in cte [:spec :cte :materialized?])
         [query & params] (cte-query env)
         cte-query (cond-> []
                     (get-in cte [:spec :cte :recursive?])

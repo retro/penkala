@@ -1809,3 +1809,6 @@
          :rel ::cte
          :is-materialized (s/or :nil nil? :boolean boolean?))
   :ret ::cte)
+
+(def empty-relation
+  (->Relation {:namespace false}))
