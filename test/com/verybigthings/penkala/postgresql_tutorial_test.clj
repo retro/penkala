@@ -2984,6 +2984,7 @@
       (.rollback tx))))
 
 (deftest embedded-relations
+  ;; https://blog.jooq.org/jooq-3-15s-new-multiset-operator-will-change-how-you-think-about-sql/
   (let [{:keys [film film-actor film-category actor category]} *env*
         film-actors (-> actor
                         (r/with-parent film)

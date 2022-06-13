@@ -600,17 +600,24 @@
         data-and-types-relation-name (str "data-and-types-" embedded-id)
         [query & params] (binding [*scopes* (conj *scopes* {:env env :rel rel})]
                            (format-select-query-without-params-resolution env (assoc embedded-relation :parent rel)))
-        fields (join-comma (map #(str "'" % "'") projection))
-        types (join-comma (map #(str "pg_typeof(" (q data-relation-name) "." (q %) ")::text") projection))
+        heading (->> projection
+                     (map (fn [alias]
+                            (str "array['" alias "', pg_typeof(" (q data-relation-name) "." (q alias) ")::text]")))
+                     join-comma)
+        body (->> projection
+                  (map (fn [alias]
+                         (str "to_json(" (q data-relation-name) "." (q alias) ")")))
+                  join-comma)
         final-query ["SELECT json_build_object"
-                     (wrap-parens "'types', json_object"
-                                  (wrap-parens (str (q data-and-types-relation-name) "." (q "fields")) ","
-                                               (str (q data-and-types-relation-name) "." (q "types"))) ","
-                                  "'data', array_to_json" (wrap-parens (q data-and-types-relation-name) "." (q "data")))
+                     (wrap-parens "'heading', array_to_json"
+                                  (wrap-parens (q data-and-types-relation-name) "." (q "heading"))
+                                  ","
+                                  "'body', array_to_json"
+                                  (wrap-parens (q data-and-types-relation-name) "." (q "body")))
                      "FROM"
-                     (wrap-parens "SELECT array[" fields "] as fields, array [" types "] as types,"
-                                  "array_agg" (wrap-parens (q data-relation-name)) " as data FROM"
-                                  (wrap-parens query) spc (q data-relation-name) " GROUP BY fields, types")
+                     (wrap-parens "SELECT array[" heading "] as heading, "
+                                  "array_agg(array[" body "]) AS body FROM"
+                                  (wrap-parens query) spc (q data-relation-name) " GROUP BY heading")
                      (q data-and-types-relation-name)]]
     (-> acc
         (update :params into params)

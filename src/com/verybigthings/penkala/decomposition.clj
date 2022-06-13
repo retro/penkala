@@ -7,11 +7,10 @@
 (defmulti coerce-embedded-value (fn [pg-type _] pg-type))
 (defmethod coerce-embedded-value :default [_ value] value)
 
-(defn coerce-embedded-row [types row]
-  (->> row
-       (map (fn [[k value]]
-              (let [pg-type (get types (name k))]
-                [k (coerce-embedded-value pg-type value)])))
+(defn coerce-embedded-row [heading row]
+  (->> heading
+       (map-indexed (fn [idx [col-name pg-type]]
+                      [(keyword col-name) (coerce-embedded-value pg-type (get row idx))]))
        (into {})))
 
 (defrecord DecompositionSchema [pk decompose-to namespace columns])
@@ -116,14 +115,14 @@
   (reduce-kv
    (fn [m k v]
      (if-let [embedded (:embedded v)]
-       (let [{:keys [data types]} (get row embedded)
+       (let [{:keys [heading body]} (get row embedded)
              processed (reduce
                         (fn [acc [idx row]]
                           (->> row
-                               (coerce-embedded-row types)
+                               (coerce-embedded-row heading)
                                (build acc v idx)))
                         {}
-                        (map-indexed (fn [idx v] [idx v]) (as-vec data)))]
+                        (map-indexed (fn [idx v] [idx v]) (as-vec body)))]
          (assoc m k processed))
        (let [descendant (build (get acc k) v idx row)]
          (if descendant

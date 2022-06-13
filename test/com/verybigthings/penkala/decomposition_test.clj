@@ -452,11 +452,9 @@
 
 (deftest it-should-decompose-embedded-data
   (let [data [{:beta
-               {:types
-                {:val "text", :j "jsonb", :id "integer", :alpha-id "integer"},
-                :data
-                [{:val "alpha three", :j nil, :id 3, :alpha-id 3}
-                 {:val "alpha three again", :j nil, :id 4, :alpha-id 3}]},
+               {:heading [["val", "text"], ["j", "jsonb"], ["id", "integer"], ["alpha-id", "integer"]]
+                :body [["alpha three", nil, 3, 3],
+                       ["alpha three again", nil, 4, 3]]},
                :id 3,
                :val "three"}]
         decomposed (d/decompose {:pk :id
