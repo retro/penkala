@@ -2982,3 +2982,203 @@
                  #:flights{:departure "New York", :arrival "Hawaii", :cyclic-data false, :cost 330, :connections 3, :itinerary "New York Los Angeles Tokyo Hawaii"}
                  #:flights{:departure "New York", :arrival "Paris", :cyclic-data true, :cost 400, :connections 3, :itinerary "New York Paris Cairo Paris"}]))
       (.rollback tx))))
+
+(deftest embedded-relations
+  ;; https://blog.jooq.org/jooq-3-15s-new-multiset-operator-will-change-how-you-think-about-sql/
+  (let [{:keys [film film-actor film-category actor category]} *env*
+        film-actors (-> actor
+                        (r/with-parent film)
+                        (r/inner-join film-actor :film-actor
+                                      [:and
+                                       [:= [:parent-scope :film-id] :film-actor/film-id]
+                                       [:= :actor-id :film-actor/actor-id]] [])
+                        (r/select [:first-name :last-name]))
+        film-categories (-> category
+                            (r/with-parent film)
+                            (r/inner-join film-category :film-category
+                                          [:and
+                                           [:= [:parent-scope :film-id] :film-category/film-id]
+                                           [:= :category-id :film-category/category-id]] [])
+                            (r/select [:name]))
+
+        films (-> film
+                  (r/extend-with-embedded :actors film-actors)
+                  (r/extend-with-embedded :categories film-categories)
+                  (r/select [:title :actors :categories])
+                  (r/order-by [:title])
+                  (r/limit 5))
+        res (select! *env* films)]
+    (fact
+     res => [#:film{:title "ACADEMY DINOSAUR",
+                    :categories [#:category{:name "Documentary"}],
+                    :actors
+                    [#:actor{:last-name "GUINESS", :first-name "PENELOPE"}
+                     #:actor{:last-name "GABLE", :first-name "CHRISTIAN"}
+                     #:actor{:last-name "TRACY", :first-name "LUCILLE"}
+                     #:actor{:last-name "PECK", :first-name "SANDRA"}
+                     #:actor{:last-name "CAGE", :first-name "JOHNNY"}
+                     #:actor{:last-name "TEMPLE", :first-name "MENA"}
+                     #:actor{:last-name "NOLTE", :first-name "WARREN"}
+                     #:actor{:last-name "KILMER", :first-name "OPRAH"}
+                     #:actor{:last-name "DUKAKIS", :first-name "ROCK"}
+                     #:actor{:last-name "KEITEL", :first-name "MARY"}]}
+             #:film{:title "ACE GOLDFINGER",
+                    :categories [#:category{:name "Horror"}],
+                    :actors
+                    [#:actor{:last-name "FAWCETT", :first-name "BOB"}
+                     #:actor{:last-name "ZELLWEGER", :first-name "MINNIE"}
+                     #:actor{:last-name "GUINESS", :first-name "SEAN"}
+                     #:actor{:last-name "DEPP", :first-name "CHRIS"}]}
+             #:film{:title "ADAPTATION HOLES",
+                    :categories [#:category{:name "Documentary"}],
+                    :actors
+                    [#:actor{:last-name "WAHLBERG", :first-name "NICK"}
+                     #:actor{:last-name "FAWCETT", :first-name "BOB"}
+                     #:actor{:last-name "STREEP", :first-name "CAMERON"}
+                     #:actor{:last-name "JOHANSSON", :first-name "RAY"}
+                     #:actor{:last-name "DENCH", :first-name "JULIANNE"}]}
+             #:film{:title "AFFAIR PREJUDICE",
+                    :categories [#:category{:name "Horror"}],
+                    :actors
+                    [#:actor{:last-name "DEGENERES", :first-name "JODIE"}
+                     #:actor{:last-name "DAMON", :first-name "SCARLETT"}
+                     #:actor{:last-name "PESCI", :first-name "KENNETH"}
+                     #:actor{:last-name "WINSLET", :first-name "FAY"}
+                     #:actor{:last-name "KILMER", :first-name "OPRAH"}]}
+             #:film{:title "AFRICAN EGG",
+                    :categories [#:category{:name "Family"}],
+                    :actors
+                    [#:actor{:last-name "PHOENIX", :first-name "GARY"}
+                     #:actor{:last-name "TAUTOU", :first-name "DUSTIN"}
+                     #:actor{:last-name "LEIGH", :first-name "MATTHEW"}
+                     #:actor{:last-name "CARREY", :first-name "MATTHEW"}
+                     #:actor{:last-name "TEMPLE", :first-name "THORA"}]}])))
+
+(deftest embedded-relations-onto-empty-relation
+  ;; This tests loads same dataset like `embedded-relations` test, but loads data in a different format
+  ;; with a probably better execution plan. It would require some lightweight processing to get structure
+  ;; like in `embedded-relations` test
+  (let [{:keys [film film-actor film-category actor category]} *env*
+        films (-> (r/as-cte
+                   (-> film
+                       (r/select [:film-id :title])
+                       (r/order-by [:title])
+                       (r/limit 5)))
+                  (r/cte-materialized true))
+        actors (-> actor
+                   (r/inner-join film-actor :film-actor
+                                 [:and
+                                  [:in :film-actor/film-id (-> films (r/select [:film-id]))]
+                                  [:= :actor-id :film-actor/actor-id]] [:film-actor/film-id])
+                   (r/select [:first-name :last-name]))
+        categories (-> category
+                       (r/inner-join film-category :film-category
+                                     [:and
+                                      [:in :film-category/film-id (-> films (r/select [:film-id]))]
+                                      [:= :category-id :film-category/category-id]] [:film-category/film-id])
+                       (r/select [:name]))
+        query (-> r/empty-relation
+                  (r/extend-with-embedded :films films)
+                  (r/extend-with-embedded :actors actors)
+                  (r/extend-with-embedded :categories categories))
+        res (select! *env* query)]
+
+    (fact
+     res => [{:categories [#:category{:name "Documentary",
+                                      :film-category
+                                      [#:film-category{:film-id 1}
+                                       #:film-category{:film-id 3}]}
+                           #:category{:name "Horror",
+                                      :film-category
+                                      [#:film-category{:film-id 2}
+                                       #:film-category{:film-id 4}]}
+                           #:category{:name "Family",
+                                      :film-category [#:film-category{:film-id 5}]}],
+              :actors [#:actor{:last-name "GUINESS",
+                               :first-name "PENELOPE",
+                               :film-actor [#:film-actor{:film-id 1}]}
+                       #:actor{:last-name "GABLE",
+                               :first-name "CHRISTIAN",
+                               :film-actor [#:film-actor{:film-id 1}]}
+                       #:actor{:last-name "TRACY",
+                               :first-name "LUCILLE",
+                               :film-actor [#:film-actor{:film-id 1}]}
+                       #:actor{:last-name "PECK",
+                               :first-name "SANDRA",
+                               :film-actor [#:film-actor{:film-id 1}]}
+                       #:actor{:last-name "CAGE",
+                               :first-name "JOHNNY",
+                               :film-actor [#:film-actor{:film-id 1}]}
+                       #:actor{:last-name "TEMPLE",
+                               :first-name "MENA",
+                               :film-actor [#:film-actor{:film-id 1}]}
+                       #:actor{:last-name "NOLTE",
+                               :first-name "WARREN",
+                               :film-actor [#:film-actor{:film-id 1}]}
+                       #:actor{:last-name "KILMER",
+                               :first-name "OPRAH",
+                               :film-actor
+                               [#:film-actor{:film-id 1} #:film-actor{:film-id 4}]}
+                       #:actor{:last-name "DUKAKIS",
+                               :first-name "ROCK",
+                               :film-actor [#:film-actor{:film-id 1}]}
+                       #:actor{:last-name "KEITEL",
+                               :first-name "MARY",
+                               :film-actor [#:film-actor{:film-id 1}]}
+                       #:actor{:last-name "WAHLBERG",
+                               :first-name "NICK",
+                               :film-actor [#:film-actor{:film-id 3}]}
+                       #:actor{:last-name "FAWCETT",
+                               :first-name "BOB",
+                               :film-actor
+                               [#:film-actor{:film-id 3} #:film-actor{:film-id 2}]}
+                       #:actor{:last-name "STREEP",
+                               :first-name "CAMERON",
+                               :film-actor [#:film-actor{:film-id 3}]}
+                       #:actor{:last-name "JOHANSSON",
+                               :first-name "RAY",
+                               :film-actor [#:film-actor{:film-id 3}]}
+                       #:actor{:last-name "DENCH",
+                               :first-name "JULIANNE",
+                               :film-actor [#:film-actor{:film-id 3}]}
+                       #:actor{:last-name "PHOENIX",
+                               :first-name "GARY",
+                               :film-actor [#:film-actor{:film-id 5}]}
+                       #:actor{:last-name "TAUTOU",
+                               :first-name "DUSTIN",
+                               :film-actor [#:film-actor{:film-id 5}]}
+                       #:actor{:last-name "LEIGH",
+                               :first-name "MATTHEW",
+                               :film-actor [#:film-actor{:film-id 5}]}
+                       #:actor{:last-name "CARREY",
+                               :first-name "MATTHEW",
+                               :film-actor [#:film-actor{:film-id 5}]}
+                       #:actor{:last-name "TEMPLE",
+                               :first-name "THORA",
+                               :film-actor [#:film-actor{:film-id 5}]}
+                       #:actor{:last-name "DEGENERES",
+                               :first-name "JODIE",
+                               :film-actor [#:film-actor{:film-id 4}]}
+                       #:actor{:last-name "DAMON",
+                               :first-name "SCARLETT",
+                               :film-actor [#:film-actor{:film-id 4}]}
+                       #:actor{:last-name "PESCI",
+                               :first-name "KENNETH",
+                               :film-actor [#:film-actor{:film-id 4}]}
+                       #:actor{:last-name "WINSLET",
+                               :first-name "FAY",
+                               :film-actor [#:film-actor{:film-id 4}]}
+                       #:actor{:last-name "ZELLWEGER",
+                               :first-name "MINNIE",
+                               :film-actor [#:film-actor{:film-id 2}]}
+                       #:actor{:last-name "GUINESS",
+                               :first-name "SEAN",
+                               :film-actor [#:film-actor{:film-id 2}]}
+                       #:actor{:last-name "DEPP",
+                               :first-name "CHRIS",
+                               :film-actor [#:film-actor{:film-id 2}]}],
+              :films [#:film{:title "ACADEMY DINOSAUR", :film-id 1}
+                      #:film{:title "ACE GOLDFINGER", :film-id 2}
+                      #:film{:title "ADAPTATION HOLES", :film-id 3}
+                      #:film{:title "AFFAIR PREJUDICE", :film-id 4}
+                      #:film{:title "AFRICAN EGG", :film-id 5}]}])))

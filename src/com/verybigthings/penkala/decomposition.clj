@@ -2,7 +2,53 @@
   (:require [clojure.spec.alpha :as s]
             [com.verybigthings.penkala.util :refer [as-vec path-prefix-join col->alias]]
             [clojure.set :as set]
-            [clojure.string :as str]))
+            [clojure.string :as str])
+  (:import java.time.LocalDateTime
+           java.time.LocalTime
+           java.time.format.DateTimeFormatter
+           java.time.temporal.ChronoUnit))
+
+(defmulti coerce-embedded-value
+  (fn [pg-type _]
+    pg-type))
+
+(defmethod coerce-embedded-value :default [_ value] value)
+
+(defmethod coerce-embedded-value "numeric" [_ value]
+  (bigdec value))
+
+(defmethod coerce-embedded-value "real" [_ value]
+  (float value))
+
+(defmethod coerce-embedded-value "money" [_ value]
+  (let [[_ numeric] (re-matches #"\D*(\d*[\.|,]\d*)\D*" value)
+        numeric' (str/replace numeric #"," ".")]
+    (Double/parseDouble numeric')))
+
+(let [formatter (DateTimeFormatter/ofPattern "yyyy-MM-dd'T'HH:mm:ss[.][SSSSSS][SSSSS][SSSS][SSS][SS][S][XXX][XX][X]")]
+  (defmethod coerce-embedded-value "timestamp with time zone" [_ value]
+    (LocalDateTime/parse value formatter)))
+
+(let [formatter (DateTimeFormatter/ofPattern "yyyy-MM-dd'T'HH:mm:ss[.][SSSSSS][SSSSS][SSSS][SSS][SS][S]")]
+  (defmethod coerce-embedded-value "timestamp without time zone" [_ value]
+    (LocalDateTime/parse value formatter)))
+
+(let [formatter (DateTimeFormatter/ofPattern "HH:mm:ss[.][SSSSSS][SSSSS][SSSS][SSS][SS][S][XXX][XX][X]")]
+  (defmethod coerce-embedded-value "time with time zone" [_ value]
+    (println "1>>>>>" value)
+    (LocalTime/parse value formatter)))
+
+(let [formatter (DateTimeFormatter/ofPattern "HH:mm:ss[.][SSSSSS][SSSSS][SSSS][SSS][SS][S]")]
+  (defmethod coerce-embedded-value "time without time zone" [_ value]
+
+    (LocalTime/parse value formatter)))
+
+(defn coerce-embedded-row [heading row]
+  (->> heading
+       (map-indexed (fn [idx [col-name pg-type]]
+                      (println col-name pg-type)
+                      [(keyword col-name) (coerce-embedded-value pg-type (get row idx))]))
+       (into {})))
 
 (defrecord DecompositionSchema [pk decompose-to namespace columns])
 
@@ -41,9 +87,12 @@
 (s/def ::keep-nil?
   boolean?)
 
+(s/def ::embedded?
+  boolean?)
+
 (s/def ::schema
   (s/keys
-   :opt-un [::decompose-to ::pk ::schema ::keep-duplicates? ::keep-nil? ::namespace]))
+   :opt-un [::decompose-to ::pk ::schema ::keep-duplicates? ::keep-nil? ::embedded? ::namespace]))
 
 (declare process-schema)
 
@@ -55,7 +104,7 @@
                               (reduce-kv
                                (fn [acc k v]
                                  (if (map? v)
-                                   (assoc-in acc [:schemas (rename k)] (process-schema v))
+                                   (assoc-in acc [:schemas (rename k)] (process-schema k v))
                                    (assoc-in acc [:renames (rename k)] v)))
                                schema
                                columns))]
@@ -69,9 +118,21 @@
        schema
        columns))))
 
-(defn process-schema- [schema]
+(defn process-embedded-schema [schema column]
+  (cond
+    (and (:embedded? schema) column)
+    (-> schema (dissoc :embedded?) (assoc :embedded column))
+
+    (and (:embedded? schema) (not column))
+    (throw (ex-info "Root schema can't have :embedded? true" {:schema schema}))
+
+    :else
+    schema))
+
+(defn process-schema- [column schema]
   (-> schema
       process-schema-columns
+      (process-embedded-schema column)
       (update :pk as-vec)))
 
 (def process-schema (memoize process-schema-))
@@ -90,10 +151,20 @@
 (defn assoc-descendants [acc schemas idx row]
   (reduce-kv
    (fn [m k v]
-     (let [descendant (build (get acc k) v idx row)]
-       (if descendant
-         (assoc m k descendant)
-         m)))
+     (if-let [embedded (:embedded v)]
+       (let [{:keys [heading body]} (get row embedded)
+             processed (reduce
+                        (fn [acc [idx row]]
+                          (->> row
+                               (coerce-embedded-row heading)
+                               (build acc v idx)))
+                        {}
+                        (map-indexed (fn [idx v] [idx v]) (as-vec body)))]
+         (assoc m k processed))
+       (let [descendant (build (get acc k) v idx row)]
+         (if descendant
+           (assoc m k descendant)
+           m))))
    acc
    schemas))
 
@@ -163,11 +234,13 @@
       (expand-transformed-coll transformed)
       transformed)))
 
+
+
 (defn decompose
   "Decomposes the data based on the schema."
   [schema data]
   (when (and (seq schema) (seq data))
-    (let [schema' (process-schema schema)
+    (let [schema' (process-schema nil schema)
           mapping (reduce
                    (fn [acc [idx row]]
                      (build acc schema' idx row))
@@ -280,12 +353,23 @@
                                           (assoc acc alias join-schema)))
                                       acc)))
                                 columns
-                                (:joins relation))]
+                                (:joins relation))
+           columns-with-joined-and-embeds (reduce
+                                           (fn [acc alias]
+                                             (let [col-id (get-in relation [:aliases->ids alias])
+                                                   {:keys [type relation]} (get-in relation [:columns col-id])]
+                                               (if (= :embed type)
+                                                 (let [overrides (get-in overrides [:schema alias])
+                                                       schema (infer-schema relation overrides [])]
+                                                   (assoc acc alias (assoc schema :embedded? true)))
+                                                 acc)))
+                                           columns-with-joined
+                                           (:projection relation))]
        (map->DecompositionSchema
         {:pk pk
          :decompose-to decompose-to
          :namespace namespace
-         :schema columns-with-joined
+         :schema columns-with-joined-and-embeds
          :processor processor
          :keep-nil? keep-nil?
          :keep-duplicates? keep-duplicates?})))))

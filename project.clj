@@ -9,6 +9,6 @@
                  [com.github.seancorfield/next.jdbc "1.2.780"]
                  [org.postgresql/postgresql "42.3.6"]
                  [camel-snake-kebab/camel-snake-kebab "0.4.2"]
-                 [com.github.vertical-blank/sql-formatter "1.0.3"]
+                 [com.github.vertical-blank/sql-formatter "2.0.3"]
                  [metosin/jsonista "0.2.7"]
                  [com.stuartsierra/dependency "1.0.0"]])

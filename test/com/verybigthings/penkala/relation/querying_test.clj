@@ -498,3 +498,9 @@
             :products/in-stock true,
             :products/name "Product 1",
             :products/price 12.00M} res))))
+
+(deftest it-can-select-from-empty-relation
+  (let [rel (-> r/empty-relation
+                (r/extend :one 1))
+        res (select! *env* rel)]
+    (is (= res [{:one 1}]))))

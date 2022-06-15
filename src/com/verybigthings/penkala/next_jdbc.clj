@@ -125,7 +125,9 @@
          (with-relations (concat tables views))))))
 
 (defn prettify-sql [sql]
-  (SqlFormatter/format sql))
+  (.. SqlFormatter
+      (of "postgresql")
+      (format sql)))
 
 (defn validate-relation [env rel]
   (let [rel' (get env rel)]
@@ -142,6 +144,7 @@
          relation'            (if (keyword? relation) (validate-relation env relation) relation)
          sqlvec               (r/get-select-query relation' env params)
          decomposition-schema (d/infer-schema relation' decomposition-schema-overrides)]
+     ;;(clojure.pprint/pprint decomposition-schema)
      ;;(-> sqlvec first prettify-sql println)
      ;;(println (rest sqlvec))
      (->> (jdbc/execute! db sqlvec default-next-jdbc-options)
@@ -247,3 +250,4 @@
   (require '[com.verybigthings.penkala.helpers :refer [param]])
 
   (r/get-select-query (r/where posts-rel [:= :user-id (param :user/id)]) {} {:user/id 1}))
+

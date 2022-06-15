@@ -814,3 +814,25 @@
              :alpha/id 2,
              :alpha/sum-id 2}]
            res))))
+
+(deftest it-can-embed-other-relation
+  (let [alpha (:alpha *env*)
+        beta (:beta *env*)
+        gamma (:gamma *env*)
+        alpha-beta (-> alpha
+                       (r/extend-with-embedded :beta (-> beta
+                                                         (r/with-parent alpha)
+                                                         (r/where [:= :alpha-id [:parent-scope :id]])))
+                       (r/where [:= :id 3]))
+        res (select! *env* alpha-beta)]
+    (is (= [{:alpha/id 3
+             :alpha/val "three"
+             :alpha/beta [{:beta/id 3
+                           :beta/alpha-id 3
+                           :beta/j nil
+                           :beta/val "alpha three"}
+                          {:beta/id 4
+                           :beta/alpha-id 3
+                           :beta/j nil
+                           :beta/val "alpha three again"}]}]
+           res))))

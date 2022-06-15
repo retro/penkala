@@ -572,6 +572,57 @@
             (update :query conj (str "DISTINCT ON" (-> query join-comma wrap-parens))))))
     acc))
 
+(defn get-projection-for-embedded
+  ([rel]
+   (let [cursor (get-projection-for-embedded rel {:columns #{} :path-prefix []})]
+     (-> cursor :columns sort)))
+  ([{:keys [projection joins] :as rel} {:keys [columns path-prefix] :as cursor}]
+   (let [columns' (reduce
+                   (fn [acc alias]
+                     (let [col-id            (get-in rel [:aliases->ids alias])
+                           col-def           (get-in rel [:columns col-id])
+                           path-prefix-names (mapv name path-prefix)
+                           col-path          (conj path-prefix-names (name alias))
+                           col-alias         (if (seq path-prefix) (path-prefix-join col-path) (name alias))]
+                       (conj acc col-alias)))
+                   columns
+                   projection)]
+     (reduce-kv
+      (fn [acc alias {:keys [relation projection]}]
+        (get-projection-for-embedded (update relation :projection #(or projection %)) (update acc :path-prefix conj alias)))
+      (assoc cursor :columns columns')
+      (get-in rel [:joins])))))
+
+(defn compile-embedded [acc env rel embedded-relation]
+  (let [projection (get-projection-for-embedded embedded-relation)
+        embedded-id (-> "embedded-" gensym name)
+        data-relation-name (str "t1-" embedded-id)
+        data-and-types-relation-name (str "t2" embedded-id)
+        [query & params] (binding [*scopes* (conj *scopes* {:env env :rel rel})]
+                           (format-select-query-without-params-resolution env (assoc embedded-relation :parent rel)))
+        heading (->> projection
+                     (map (fn [alias]
+                            (str "array['" alias "', pg_typeof(" (q data-relation-name) "." (q alias) ")::text]")))
+                     join-comma)
+        body (->> projection
+                  (map (fn [alias]
+                         (str "to_json(" (q data-relation-name) "." (q alias) ")")))
+                  join-comma)
+        final-query ["SELECT json_build_object"
+                     (wrap-parens "'heading', array_to_json"
+                                  (wrap-parens (q data-and-types-relation-name) "." (q "heading"))
+                                  ","
+                                  "'body', array_to_json"
+                                  (wrap-parens (q data-and-types-relation-name) "." (q "body")))
+                     "FROM"
+                     (wrap-parens "SELECT array[" heading "] as heading, "
+                                  "array_agg(array[" body "]) AS body FROM"
+                                  (wrap-parens query) spc (q data-relation-name) " GROUP BY heading")
+                     (q data-and-types-relation-name)]]
+    (-> acc
+        (update :params into params)
+        (update :query conj (join-space final-query)))))
+
 (defn with-projection
   ([acc env rel]
    (let [{:keys [query params]} (with-projection empty-acc env rel [])]
@@ -600,6 +651,12 @@
                              (-> acc
                                  (update :params into params)
                                  (update :query conj (str (join-space query) spc "AS" spc (q col-alias)))))
+
+                           (and (not (seq path-prefix)) (= :embed col-type))
+                           (let [{:keys [query params]} (compile-embedded empty-acc env rel (:relation col-def))]
+                             (-> acc
+                                 (update :params into params)
+                                 (update :query conj (str (-> query join-space wrap-parens) spc "AS" spc (q col-alias)))))
 
                            (and (not (seq path-prefix)) (= :window col-type))
                            (let [{:keys [value-expression partition-by order-by]} col-def
@@ -693,6 +750,9 @@
         (-> acc
             (update :params into params)
             (update :query conj (join-space ["FROM" query "AS" (q (get-rel-alias-with-prefix env rel-name))]))))
+
+      (nil? (get-in rel [:spec :name]))
+      acc
 
       :else
       (let [rel-name (get-rel-alias rel)]
@@ -891,7 +951,7 @@
 
 (defn with-cte [env acc cte]
   (let [cte-query (get-in cte [:spec :query])
-        materialized? (:materialized? cte-query)
+        materialized? (get-in cte [:spec :cte :materialized?])
         [query & params] (cte-query env)
         cte-query (cond-> []
                     (get-in cte [:spec :cte :recursive?])
