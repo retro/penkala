@@ -2,14 +2,51 @@
   (:require [clojure.spec.alpha :as s]
             [com.verybigthings.penkala.util :refer [as-vec path-prefix-join col->alias]]
             [clojure.set :as set]
-            [clojure.string :as str]))
+            [clojure.string :as str])
+  (:import java.time.LocalDateTime
+           java.time.LocalTime
+           java.time.format.DateTimeFormatter
+           java.time.temporal.ChronoUnit))
 
-(defmulti coerce-embedded-value (fn [pg-type _] pg-type))
+(defmulti coerce-embedded-value
+  (fn [pg-type _]
+    pg-type))
+
 (defmethod coerce-embedded-value :default [_ value] value)
+
+(defmethod coerce-embedded-value "numeric" [_ value]
+  (bigdec value))
+
+(defmethod coerce-embedded-value "real" [_ value]
+  (float value))
+
+(defmethod coerce-embedded-value "money" [_ value]
+  (let [[_ numeric] (re-matches #"\D*(\d*[\.|,]\d*)\D*" value)
+        numeric' (str/replace numeric #"," ".")]
+    (Double/parseDouble numeric')))
+
+(let [formatter (DateTimeFormatter/ofPattern "yyyy-MM-dd'T'HH:mm:ss[.][SSSSSS][SSSSS][SSSS][SSS][SS][S][XXX][XX][X]")]
+  (defmethod coerce-embedded-value "timestamp with time zone" [_ value]
+    (LocalDateTime/parse value formatter)))
+
+(let [formatter (DateTimeFormatter/ofPattern "yyyy-MM-dd'T'HH:mm:ss[.][SSSSSS][SSSSS][SSSS][SSS][SS][S]")]
+  (defmethod coerce-embedded-value "timestamp without time zone" [_ value]
+    (LocalDateTime/parse value formatter)))
+
+(let [formatter (DateTimeFormatter/ofPattern "HH:mm:ss[.][SSSSSS][SSSSS][SSSS][SSS][SS][S][XXX][XX][X]")]
+  (defmethod coerce-embedded-value "time with time zone" [_ value]
+    (println "1>>>>>" value)
+    (LocalTime/parse value formatter)))
+
+(let [formatter (DateTimeFormatter/ofPattern "HH:mm:ss[.][SSSSSS][SSSSS][SSSS][SSS][SS][S]")]
+  (defmethod coerce-embedded-value "time without time zone" [_ value]
+
+    (LocalTime/parse value formatter)))
 
 (defn coerce-embedded-row [heading row]
   (->> heading
        (map-indexed (fn [idx [col-name pg-type]]
+                      (println col-name pg-type)
                       [(keyword col-name) (coerce-embedded-value pg-type (get row idx))]))
        (into {})))
 

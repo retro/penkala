@@ -596,8 +596,8 @@
 (defn compile-embedded [acc env rel embedded-relation]
   (let [projection (get-projection-for-embedded embedded-relation)
         embedded-id (-> "embedded-" gensym name)
-        data-relation-name (str "data-" embedded-id)
-        data-and-types-relation-name (str "data-and-types-" embedded-id)
+        data-relation-name (str "t1-" embedded-id)
+        data-and-types-relation-name (str "t2" embedded-id)
         [query & params] (binding [*scopes* (conj *scopes* {:env env :rel rel})]
                            (format-select-query-without-params-resolution env (assoc embedded-relation :parent rel)))
         heading (->> projection
