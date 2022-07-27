@@ -91,8 +91,8 @@
     {:type vex-type
      :args args})))
 
-(defmethod compile-value-expression nil [acc _ _ _]
-  acc)
+#_(defmethod compile-value-expression nil [acc _ _ _]
+    acc)
 
 (defmethod compile-value-expression :function-call [acc env rel [_ {:keys [fn args]}]]
   (compile-function-call acc env rel fn args))
@@ -717,7 +717,9 @@
                                          (format-select-query-without-params-resolution env join-relation))
             join-clause   (cond-> [join-sql-type (wrap-parens join-query) (q (get-rel-alias-with-prefix env join-alias))]
                             (seq on) (conj "ON"))
-            {:keys [query params]} (compile-value-expression {:query join-clause :params (vec join-params)} (assoc env ::join-path-prefix path-prefix) rel on)]
+            {:keys [query params]} (if (seq on)
+                                     (compile-value-expression {:query join-clause :params (vec join-params)} (assoc env ::join-path-prefix path-prefix) rel on)
+                                     {:query join-clause :params (vec join-params)})]
 
         (-> acc'
             (update :params into params)
