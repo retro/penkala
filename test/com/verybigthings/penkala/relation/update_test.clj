@@ -142,3 +142,14 @@
         res-2 (update! *env* upd-booleans {:value false})]
     (is (= #:booleans{:id 1 :value true} res))
     (is (= [#:booleans{:id 1 :value false}] res-2))))
+
+(deftest it-can-use-nil-values-in-value-expressions
+  (let [booleans (:booleans *env*)
+        ins-booleans (r/->insertable booleans)
+        res (insert! *env* ins-booleans {:value true})
+        upd-booleans (-> booleans
+                         r/->updatable
+                         (r/where [:= :id nil]))
+        res-2 (update! *env* upd-booleans {:value false})]
+    (is (= #:booleans{:id 1 :value true} res))
+    (is (= nil res-2))))
