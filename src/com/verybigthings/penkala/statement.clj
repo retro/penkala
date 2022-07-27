@@ -91,8 +91,10 @@
     {:type vex-type
      :args args})))
 
-#_(defmethod compile-value-expression nil [acc _ _ _]
-    acc)
+(defmethod compile-value-expression nil [acc _ _ _]
+  (-> acc
+      (update :query conj "?")
+      (update :params conj nil)))
 
 (defmethod compile-value-expression :function-call [acc env rel [_ {:keys [fn args]}]]
   (compile-function-call acc env rel fn args))
