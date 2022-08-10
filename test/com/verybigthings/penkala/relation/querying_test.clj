@@ -498,3 +498,27 @@
             :products/in-stock true,
             :products/name "Product 1",
             :products/price 12.00M} res))))
+
+(deftest it-can-use-complex-column-defs
+  (let [p (-> *env*
+              :products
+              (r/extend :foo ["*" [:cast 0.2 "numeric"] ["*" [:cast 0.1 "numeric"] :price]])
+              (r/extend-with-aggregate :bar [:avg :foo])
+              (r/select [:id :name :foo :bar]))
+        res (select! *env* p)]
+    (is (= [{:products/bar 0.24000000000000000000M,
+             :products/foo 0.2400M,
+             :products/id 1,
+             :products/name "Product 1"}
+            {:products/bar 0.48000000000000000000M,
+             :products/foo 0.4800M,
+             :products/id 2,
+             :products/name "Product 2"}
+            {:products/bar 0.80000000000000000000M,
+             :products/foo 0.8000M,
+             :products/id 4,
+             :products/name "Product 4"}
+            {:products/bar 0.70000000000000000000M,
+             :products/foo 0.7000M,
+             :products/id 3,
+             :products/name "Product 3"}] res))))

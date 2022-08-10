@@ -61,7 +61,11 @@
         {args-query :query args-params :params}
         (reduce
          (fn [acc arg]
-           (compile-value-expression acc env rel arg))
+           (let [[arg-type & _] arg
+                 {:keys [query params]} (compile-value-expression empty-acc env rel arg)]
+             (-> acc
+                 (update :params into params)
+                 (update :query into (if (= :resolved-column arg-type) [(join-space query)] query)))))
          empty-acc
          (if has-order-by (butlast args) args))
 
