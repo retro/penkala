@@ -14,11 +14,18 @@
    :full "FULL OUTER JOIN"
    :cross "CROSS JOIN"})
 
-(def op->sql-op {})
+(def op->sql-op
+  {"@?" "@??"
+   "?" "??"
+   "?|" "??|"
+   "?#" "??#"
+   "?-" "??-"
+   "?-|" "??-|"
+   "?||" "??|"})
 
 (defn get-sql-op [op]
   (if (string? op)
-    op
+    (or (op->sql-op op) op)
     (or (op->sql-op op) (-> op ->SCREAMING_SNAKE_CASE_STRING (str/replace #"_" " ")))))
 
 (defn str-quote [s]

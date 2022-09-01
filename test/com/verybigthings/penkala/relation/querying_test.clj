@@ -172,6 +172,16 @@
     (is (= 3 (:products/id res)))
     (is (= 30 (get-in res [:products/specs :weight])))))
 
+(deftest it-finds-products-matching-the-desired-json-path-1
+  (let [res (select-one! *env* (-> *env* :products (r/where ["@?" :specs (h/literal "'$.dimensions.length ? (@ == 15)'")])))]
+    (is (= 2 (:products/id res)))
+    (is (= 15 (get-in res [:products/specs :dimensions :length])))))
+
+(deftest it-finds-products-matching-the-desired-json-path-2
+  (let [res (select-one! *env* (-> *env* :products (r/where ["@?" :specs [:cast [:concat (h/literal "'$.dimensions.length ? (@ == '") 15 (h/literal "')'")] "jsonpath"]])))]
+    (is (= 2 (:products/id res)))
+    (is (= 15 (get-in res [:products/specs :dimensions :length])))))
+
 (deftest it-filters-by-array-fields-containing-a-value
   (let [res (select! *env* (-> *env* :products (r/where ["@>" :tags ["tag2"]])))]
     (is (= 2 (count res)))
